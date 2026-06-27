@@ -32,7 +32,6 @@ RequestExecutionLevel admin
 Section "Install"
   SetOutPath "$INSTDIR"
   File "dist\VoirolClass.exe"
-  File "config.toml.example"
 
   CreateDirectory "$SMPROGRAMS\${PRODUCT_NAME}"
   CreateShortCut "$SMPROGRAMS\${PRODUCT_NAME}\VoirolClass.lnk" "$INSTDIR\VoirolClass.exe"
@@ -53,7 +52,6 @@ SectionEnd
 
 Section "Uninstall"
   Delete "$INSTDIR\VoirolClass.exe"
-  Delete "$INSTDIR\config.toml.example"
   Delete "$INSTDIR\Uninstall.exe"
   RMDir "$INSTDIR"
 
