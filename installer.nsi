@@ -13,8 +13,8 @@ InstallDir "$PROGRAMFILES64\${PRODUCT_NAME}"
 RequestExecutionLevel admin
 
 !define MUI_ABORTWARNING
-!define MUI_ICON "assets\img\icon.png"
-!define MUI_UNICON "assets\img\icon.png"
+!define MUI_ICON "assets\img\icon.ico"
+!define MUI_UNICON "assets\img\icon.ico"
 !define MUI_WELCOMEPAGE_TITLE "VoirolClass ${VERSION} Setup"
 !define MUI_WELCOMEPAGE_TEXT "This wizard will guide you through installing VoirolClass ${VERSION}.\r\n\r\nVoirolClass is a voice-controlled classroom assistant with speaker verification, offline ASR, and AI command matching.\r\n\r\nClick Next to continue."
 !define MUI_DIRECTORYPAGE_VERIFYONINIT
