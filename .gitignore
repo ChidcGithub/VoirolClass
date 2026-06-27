@@ -6,10 +6,11 @@ __pycache__/
 venv/
 *.pkl
 *.tar.bz2
-data/enrollments/*.wav
-models/sensevoice/*.onnx
-models/sensevoice/*.tar.bz2
-models/vosk/am/final.mdl
+data/
+!data/.gitkeep
+models/sensevoice/
+models/vosk/
+models/silero_vad.onnx
 .vscode/
 .idea/
 
