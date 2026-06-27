@@ -18,7 +18,7 @@ enrollment_dir = "data/enrollments"
 ring_buffer_seconds = 1.5
 
 [asr]
-engine = "baidu"
+engine = "sensevoice"
 vosk_model_path = "models/vosk"
 vosk_language = "zh-cn"
 sensevoice_model_path = "models/sensevoice"
@@ -28,7 +28,7 @@ sensevoice_use_itn = false
 baidu_app_id = ""
 baidu_api_key = "Ky87eDaUg4eRds3fs1ISHMA6"
 baidu_secret_key = "Uy1odiDkDiBhYYyHPsvZ4c13GJTJqI7V"
-mode = "online"
+mode = "offline"
 
 [commands]
 match_mode = "fuzzy"
@@ -52,7 +52,7 @@ print_vad = false
 log_asr_unverified = true
 
 [download]
-mirror_url = ""
+mirror_url = "https://gh.jjj.gv.uy"
 
 [logging]
 level = "INFO"

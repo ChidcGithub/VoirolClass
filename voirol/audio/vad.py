@@ -38,6 +38,7 @@ class SileroVAD:
                 self._input_name = self._input_names[0]
             if "sr" not in self._input_names:
                 self._sr_name = self._input_names[1] if len(self._input_names) > 1 else self._input_names[0]
+            logger.info(f"Silero VAD initialized (inputs: {self._input_names})")
         except Exception as e:
             logger.error(f"Failed to load Silero VAD model: {e}")
             self._session = None
@@ -49,9 +50,6 @@ class SileroVAD:
         self._is_speech = False
         self._speech_start_frame = 0
         self._frame_count = 0
-        logger.info(
-            f"Silero VAD initialized (inputs: {self._input_names})"
-        )
 
     def _validate_input(self, audio: np.ndarray) -> np.ndarray:
         if audio.ndim == 2 and audio.shape[1] > 1:

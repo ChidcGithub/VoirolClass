@@ -149,8 +149,8 @@ def download_model(model_id: str, mirror_url: str = "", progress_callback=None) 
 
         if entry.extract:
             if progress_callback:
-                progress_callback(0)
-            _extract_model(entry, filepath)
+                progress_callback(-1)
+            _extract_model(entry, filepath, progress_callback)
 
         if progress_callback:
             progress_callback(100)
@@ -161,18 +161,24 @@ def download_model(model_id: str, mirror_url: str = "", progress_callback=None) 
         return False
 
 
-def _extract_model(entry: ModelEntry, filepath: str):
-    dest = entry.dest_dir
+def _extract_model(entry: ModelEntry, filepath: str, progress_callback=None):
     base = os.path.dirname(filepath) or "."
+    logger.info(f"Extracting {entry.filename}...")
 
     if entry.id == "sensevoice":
         extract_dir = os.path.join(base, "_extracted_sv")
         if os.path.exists(extract_dir):
             shutil.rmtree(extract_dir)
         os.makedirs(extract_dir, exist_ok=True)
-        logger.info(f"Extracting {entry.filename}...")
+
         with tarfile.open(filepath, "r:bz2") as tar:
-            tar.extractall(extract_dir)
+            members = tar.getmembers()
+            total = len(members)
+            for i, m in enumerate(members):
+                tar.extract(m, extract_dir)
+                if progress_callback:
+                    pct = int((i + 1) / total * 90)
+                    progress_callback(pct)
 
         target = os.path.join(base, "sensevoice")
         items = os.listdir(extract_dir)
@@ -190,9 +196,14 @@ def _extract_model(entry: ModelEntry, filepath: str):
         logger.info(f"SenseVoice extracted to {target}")
 
     elif entry.id.startswith("vosk"):
-        logger.info(f"Extracting {entry.filename}...")
         with zipfile.ZipFile(filepath, "r") as zf:
-            zf.extractall(base)
+            members = zf.infolist()
+            total = len(members)
+            for i, m in enumerate(members):
+                zf.extract(m, base)
+                if progress_callback:
+                    pct = int((i + 1) / total * 90)
+                    progress_callback(pct)
 
         target = os.path.join(base, "vosk")
         extracted = [
@@ -207,6 +218,8 @@ def _extract_model(entry: ModelEntry, filepath: str):
             os.rename(src, target)
             logger.info(f"Vosk extracted to {target}")
 
+    if progress_callback:
+        progress_callback(95)
     os.remove(filepath)
 
 

@@ -530,8 +530,12 @@ class SettingsDialog(QDialog):
     def _on_dl_progress(self, model_id: str, pct: int):
         if model_id in self._dl_rows:
             bar, status = self._dl_rows[model_id]
-            bar.setValue(pct)
-            status.setText(t("model.progress", pct=pct))
+            if pct == -1:
+                bar.setValue(0)
+                status.setText(t("model.extracting"))
+            else:
+                bar.setValue(pct)
+                status.setText(t("model.progress", pct=pct))
 
     def _on_dl_model_finished(self, model_id: str, success: bool):
         if model_id in self._dl_rows:
