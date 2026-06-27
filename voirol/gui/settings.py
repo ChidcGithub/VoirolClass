@@ -291,6 +291,13 @@ class SettingsDialog(QDialog):
         self._asr_engine_combo.blockSignals(False)
 
     def _on_asr_mode_changed(self):
+        if self._asr_mode_combo.currentData() == "offline":
+            engine = self._asr_engine_combo.currentData()
+            if not self._check_offline_model(engine):
+                self._asr_mode_combo.blockSignals(True)
+                self._asr_mode_combo.setCurrentIndex(1)
+                self._asr_mode_combo.blockSignals(False)
+                return
         self._refresh_asr_engine_list()
         self._refresh_asr_api_fields()
         self._save_asr_config()
@@ -302,7 +309,33 @@ class SettingsDialog(QDialog):
             w.setVisible(is_online)
 
     def _on_asr_engine_changed(self):
+        if self._asr_mode_combo.currentData() == "offline":
+            engine = self._asr_engine_combo.currentData()
+            if not self._check_offline_model(engine):
+                self._asr_engine_combo.blockSignals(True)
+                prev = self.pipeline.config.asr.get("engine", "sensevoice")
+                idx = self._asr_engine_combo.findData(prev)
+                if idx >= 0:
+                    self._asr_engine_combo.setCurrentIndex(idx)
+                self._asr_engine_combo.blockSignals(False)
+                return
         self._save_asr_config()
+
+    def _check_offline_model(self, engine: str) -> bool:
+        mid = {"sensevoice": "sensevoice", "vosk": "vosk_zh"}.get(engine)
+        if mid and md.check_model_status(mid) == md.DownloadState.MISSING:
+            name = md.MODELS[mid].name
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Icon.Warning)
+            msg.setWindowTitle(t("prompt.title"))
+            msg.setText(t("model.engine_needs_model", engine=name))
+            go_btn = msg.addButton(t("model.go_download"), QMessageBox.ButtonRole.ActionRole)
+            msg.addButton(t("close"), QMessageBox.ButtonRole.RejectRole)
+            msg.exec()
+            if msg.clickedButton() == go_btn:
+                self.tabs.setCurrentIndex(3)
+            return False
+        return True
 
     def _save_asr_config(self):
         self.pipeline.config.asr["mode"] = self._asr_mode_combo.currentData()
