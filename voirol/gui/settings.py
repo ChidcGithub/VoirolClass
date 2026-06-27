@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QDoubleSpinBox,
     QFormLayout,
     QFrame,
     QGroupBox,
@@ -184,6 +185,65 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(teacher_group)
 
+        asr_group = QGroupBox(t("asr.mode"))
+        asr_layout = QVBoxLayout(asr_group)
+        asr_layout.setSpacing(8)
+
+        mode_layout = QHBoxLayout()
+        mode_label = QLabel(t("asr.mode"))
+        mode_layout.addWidget(mode_label)
+
+        self._asr_mode_combo = QComboBox()
+        self._asr_mode_combo.addItem(t("asr.mode_offline"), "offline")
+        self._asr_mode_combo.addItem(t("asr.mode_online"), "online")
+        current_mode = self.pipeline.config.asr.get("mode", "offline")
+        self._asr_mode_combo.setCurrentIndex(0 if current_mode == "offline" else 1)
+        self._asr_mode_combo.currentIndexChanged.connect(self._on_asr_mode_changed)
+        mode_layout.addWidget(self._asr_mode_combo)
+        asr_layout.addLayout(mode_layout)
+
+        engine_layout = QHBoxLayout()
+        engine_label = QLabel(t("asr.engine_label"))
+        engine_layout.addWidget(engine_label)
+
+        self._asr_engine_combo = QComboBox()
+        engine_layout.addWidget(self._asr_engine_combo)
+        asr_layout.addLayout(engine_layout)
+
+        asr_layout.addSpacing(6)
+
+        self._baidu_api_label = QLabel(t("asr.baidu_api_key"))
+        self._baidu_api_input = QLineEdit()
+        self._baidu_api_input.setPlaceholderText(t("asr.baidu_api_key"))
+        self._baidu_api_input.setText(self.pipeline.config.asr.get("baidu_api_key", ""))
+        self._baidu_api_input.textChanged.connect(lambda: _on_baidu_key_changed(self, self._baidu_api_input, self._baidu_secret_input))
+        asr_layout.addWidget(self._baidu_api_label)
+        asr_layout.addWidget(self._baidu_api_input)
+
+        self._baidu_secret_label = QLabel(t("asr.baidu_secret_key"))
+        self._baidu_secret_input = QLineEdit()
+        self._baidu_secret_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self._baidu_secret_input.setPlaceholderText(t("asr.baidu_secret_key"))
+        self._baidu_secret_input.setText(self.pipeline.config.asr.get("baidu_secret_key", ""))
+        self._baidu_secret_input.textChanged.connect(lambda: _on_baidu_key_changed(self, self._baidu_api_input, self._baidu_secret_input))
+        asr_layout.addWidget(self._baidu_secret_label)
+        asr_layout.addWidget(self._baidu_secret_input)
+
+        layout.addWidget(asr_group)
+
+        layout.addSpacing(6)
+
+        rb_label = QLabel(t("voice.history_duration"))
+        rb_label.setToolTip(t("voice.history_duration_desc"))
+        layout.addWidget(rb_label)
+
+        self._rb_spin = QDoubleSpinBox()
+        self._rb_spin.setRange(0.5, 5.0)
+        self._rb_spin.setSingleStep(0.5)
+        self._rb_spin.setValue(self.pipeline.config.voice.get("ring_buffer_seconds", 2.0))
+        self._rb_spin.valueChanged.connect(self._on_ring_buffer_changed)
+        layout.addWidget(self._rb_spin)
+
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
         line.setFrameShadow(QFrame.Shadow.Sunken)
@@ -203,7 +263,46 @@ class SettingsDialog(QDialog):
         select_btn.clicked.connect(self._on_select)
         delete_btn.clicked.connect(self._on_delete)
 
+        self._refresh_asr_engine_list()
+        self._asr_engine_combo.currentIndexChanged.connect(self._on_asr_engine_changed)
+        self._refresh_asr_api_fields()
+
         self._refresh_teacher_list()
+
+    def _refresh_asr_engine_list(self):
+        self._asr_engine_combo.blockSignals(True)
+        self._asr_engine_combo.clear()
+        is_online = self._asr_mode_combo.currentData() == "online"
+        if is_online:
+            self._asr_engine_combo.addItem(t("asr.engine_baidu"), "baidu")
+        else:
+            self._asr_engine_combo.addItem(t("asr.engine_sensevoice"), "sensevoice")
+            self._asr_engine_combo.addItem(t("asr.engine_vosk"), "vosk")
+        current_engine = self.pipeline.config.asr.get("engine", "sensevoice")
+        idx = self._asr_engine_combo.findData(current_engine)
+        if idx >= 0:
+            self._asr_engine_combo.setCurrentIndex(idx)
+        self._asr_engine_combo.blockSignals(False)
+
+    def _on_asr_mode_changed(self):
+        self._refresh_asr_engine_list()
+        self._refresh_asr_api_fields()
+        self._save_asr_config()
+
+    def _refresh_asr_api_fields(self):
+        is_online = self._asr_mode_combo.currentData() == "online"
+        for w in [self._baidu_api_label, self._baidu_api_input,
+                  self._baidu_secret_label, self._baidu_secret_input]:
+            w.setVisible(is_online)
+
+    def _on_asr_engine_changed(self):
+        self._save_asr_config()
+
+    def _save_asr_config(self):
+        self.pipeline.config.asr["mode"] = self._asr_mode_combo.currentData()
+        self.pipeline.config.asr["engine"] = self._asr_engine_combo.currentData()
+        save_config(self.pipeline.config)
+        QMessageBox.information(self, t("prompt.title"), t("asr.restart_hint"))
 
     def _on_mute_toggled(self, checked: bool):
         self.pipeline.muted = checked
@@ -269,6 +368,11 @@ class SettingsDialog(QDialog):
 
         logger.info(t("teacher.deleted", name=name))
         self._refresh_teacher_list()
+
+    def _on_ring_buffer_changed(self, value: float):
+        self.pipeline.config.voice["ring_buffer_seconds"] = value
+        save_config(self.pipeline.config)
+        logger.info(f"Ring buffer seconds set to {value}")
 
     def _add_general_tab(self):
         tab = QWidget()
@@ -341,6 +445,12 @@ def _on_ui_changed(dialog: SettingsDialog, key: str, value: int):
     dialog.pipeline.config.ui[key] = value
     save_config(dialog.pipeline.config)
     QMessageBox.information(dialog, t("prompt.title"), t("ui.restart_hint"))
+
+
+def _on_baidu_key_changed(dialog: SettingsDialog, api_input, secret_input):
+    dialog.pipeline.config.asr["baidu_api_key"] = api_input.text()
+    dialog.pipeline.config.asr["baidu_secret_key"] = secret_input.text()
+    save_config(dialog.pipeline.config)
 
 
 def _show_enroll_dialog(pipeline: VoicePipeline):

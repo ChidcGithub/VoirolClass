@@ -59,7 +59,8 @@ class VoicePipeline:
 
         sr = config.general["sample_rate"]
         block = config.general["block_size"]
-        self._ring_buffer_max_frames = max(1, int(sr / block))  # ~1s history
+        rb_seconds = self.config.voice.get("ring_buffer_seconds", 2.0)
+        self._ring_buffer_max_frames = max(1, int(sr / block * rb_seconds))
 
         debug = config.debug
         self._verbose = debug.get("verbose", False)
@@ -102,9 +103,9 @@ class VoicePipeline:
         elif engine_type == "baidu":
             from voirol.asr.baidu_engine import BaiduEngine
             self.asr_engine: ASREngine = BaiduEngine(
-                app_id=asr_cfg["baidu_app_id"],
                 api_key=asr_cfg["baidu_api_key"],
                 secret_key=asr_cfg["baidu_secret_key"],
+                language=asr_cfg.get("sensevoice_language", "zh"),
             )
         else:
             self.asr_engine: ASREngine = VoskEngine(

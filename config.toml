@@ -15,9 +15,10 @@ model_path = "campplus-zh-en"
 verification_threshold = 0.45
 enrollment_utterances = 5
 enrollment_dir = "data/enrollments"
+ring_buffer_seconds = 1.5
 
 [asr]
-engine = "sensevoice"
+engine = "baidu"
 vosk_model_path = "models/vosk"
 vosk_language = "zh-cn"
 sensevoice_model_path = "models/sensevoice"
@@ -25,8 +26,9 @@ sensevoice_num_threads = 2
 sensevoice_language = "zh"
 sensevoice_use_itn = false
 baidu_app_id = ""
-baidu_api_key = ""
-baidu_secret_key = ""
+baidu_api_key = "Ky87eDaUg4eRds3fs1ISHMA6"
+baidu_secret_key = "Uy1odiDkDiBhYYyHPsvZ4c13GJTJqI7V"
+mode = "online"
 
 [commands]
 match_mode = "fuzzy"

@@ -31,6 +31,7 @@ class Config:
         "verification_threshold": 0.45,
         "enrollment_utterances": 5,
         "enrollment_dir": "data/enrollments",
+        "ring_buffer_seconds": 2.0,
     })
     asr: dict = field(default_factory=lambda: {
         "engine": "vosk",
