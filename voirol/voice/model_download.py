@@ -13,6 +13,10 @@ from voirol.utils.logger import get_logger
 logger = get_logger("voice.model_download")
 
 
+DOWNLOAD_ORDER = ["silero_vad", "vosk_zh", "vosk_en", "sensevoice"]
+QUEUE_FILE = "data/.download_queue"
+
+
 class DownloadState:
     MISSING = "missing"
     DOWNLOADED = "downloaded"
@@ -204,18 +208,40 @@ def _extract_model(entry: ModelEntry, filepath: str):
     os.remove(filepath)
 
 
+def save_queue(model_ids: list[str]):
+    os.makedirs(os.path.dirname(QUEUE_FILE), exist_ok=True)
+    with open(QUEUE_FILE, "w", encoding="utf-8") as f:
+        f.write("\n".join(model_ids))
+
+
+def load_queue() -> list[str]:
+    if not os.path.exists(QUEUE_FILE):
+        return []
+    with open(QUEUE_FILE, "r", encoding="utf-8") as f:
+        ids = [line.strip() for line in f if line.strip()]
+    return ids
+
+
+def clear_queue():
+    if os.path.exists(QUEUE_FILE):
+        os.remove(QUEUE_FILE)
+
+
 class DownloadWorker(QObject):
     progress = pyqtSignal(str, int)
-    finished = pyqtSignal(str, bool)
+    model_finished = pyqtSignal(str, bool)
+    all_finished = pyqtSignal()
 
-    def __init__(self, model_id: str, mirror_url: str = ""):
+    def __init__(self, model_ids: list[str], mirror_url: str = ""):
         super().__init__()
-        self.model_id = model_id
+        self.model_ids = model_ids
         self.mirror_url = mirror_url
 
     def run(self):
-        ok = download_model(
-            self.model_id, self.mirror_url,
-            progress_callback=lambda p: self.progress.emit(self.model_id, p),
-        )
-        self.finished.emit(self.model_id, ok)
+        for mid in self.model_ids:
+            ok = download_model(
+                mid, self.mirror_url,
+                progress_callback=lambda p: self.progress.emit(mid, p),
+            )
+            self.model_finished.emit(mid, ok)
+        self.all_finished.emit()

@@ -461,53 +461,97 @@ class SettingsDialog(QDialog):
             return None
         return self._model_table.item(row, 0).data(256)
 
+    def _check_resume_queue(self):
+        pending = md.load_queue()
+        if not pending:
+            return
+        reply = QMessageBox.question(
+            self, t("model.resume_title"),
+            t("model.resume_text"),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._start_queue(pending)
+
     def _on_download_selected(self):
         mid = self._get_selected_model_id()
         if not mid:
             QMessageBox.warning(self, t("prompt.title"), t("model.select_hint"))
             return
-        self._start_download(mid)
+        self._start_queue([mid])
 
     def _on_download_all(self):
-        for mid in ["silero_vad", "sensevoice", "vosk_zh", "vosk_en"]:
-            if md.check_model_status(mid) == md.DownloadState.MISSING:
-                self._start_download(mid)
+        pending = [mid for mid in md.DOWNLOAD_ORDER
+                   if md.check_model_status(mid) == md.DownloadState.MISSING]
+        if not pending:
+            return
+        self._start_queue(pending)
 
-    def _start_download(self, model_id: str):
+    def _start_queue(self, model_ids: list[str]):
         mirror = self._mirror_input.text().strip()
-        self._progress_bar.setVisible(True)
-        self._progress_bar.setValue(0)
-        self._download_label.setText(t("model.downloading", name=md.MODELS[model_id].name))
+        md.save_queue(model_ids)
+
+        self._progress_group.setVisible(True)
+        for mid in md.DOWNLOAD_ORDER:
+            bar, status = self._dl_rows[mid]
+            st = md.check_model_status(mid)
+            if mid in model_ids:
+                if mid == model_ids[0]:
+                    bar.setValue(0)
+                    status.setText("0%")
+                else:
+                    bar.setValue(0)
+                    status.setText(t("model.waiting"))
+            elif st == md.DownloadState.DOWNLOADED:
+                bar.setValue(100)
+                status.setText(t("model.status_downloaded"))
+            elif st == md.DownloadState.AUTO:
+                bar.setValue(100)
+                status.setText(t("model.status_auto"))
+            else:
+                bar.setValue(0)
+                status.setText("—")
         self._download_btn.setEnabled(False)
         self._download_all_btn.setEnabled(False)
 
         self._dl_thread = QThread()
-        self._dl_worker = md.DownloadWorker(model_id, mirror)
+        self._dl_worker = md.DownloadWorker(model_ids, mirror)
         self._dl_worker.moveToThread(self._dl_thread)
         self._dl_thread.started.connect(self._dl_worker.run)
         self._dl_worker.progress.connect(self._on_dl_progress)
-        self._dl_worker.finished.connect(self._on_dl_finished)
-        self._dl_worker.finished.connect(self._dl_thread.quit)
-        self._dl_worker.finished.connect(self._dl_worker.deleteLater)
+        self._dl_worker.model_finished.connect(self._on_dl_model_finished)
+        self._dl_worker.all_finished.connect(self._on_dl_all_finished)
+        self._dl_worker.all_finished.connect(self._dl_thread.quit)
+        self._dl_worker.all_finished.connect(self._dl_worker.deleteLater)
         self._dl_thread.finished.connect(self._dl_thread.deleteLater)
         self._dl_thread.start()
 
     def _on_dl_progress(self, model_id: str, pct: int):
-        self._progress_bar.setValue(pct)
-        self._download_label.setText(
-            t("model.downloading", name=md.MODELS[model_id].name) + " " +
-            t("model.progress", pct=pct)
-        )
+        if model_id in self._dl_rows:
+            bar, status = self._dl_rows[model_id]
+            bar.setValue(pct)
+            status.setText(t("model.progress", pct=pct))
 
-    def _on_dl_finished(self, model_id: str, success: bool):
-        self._progress_bar.setVisible(False)
+    def _on_dl_model_finished(self, model_id: str, success: bool):
+        if model_id in self._dl_rows:
+            bar, status = self._dl_rows[model_id]
+            ok = success and md.check_model_status(model_id) == md.DownloadState.DOWNLOADED
+            bar.setValue(100 if ok else 0)
+            status.setText(t("model.done") if ok else t("model.failed"))
+        queue = md.load_queue()
+        if model_id in queue:
+            queue.remove(model_id)
+            if queue:
+                md.save_queue(queue)
+            else:
+                md.clear_queue()
+        self._refresh_model_table()
+
+    def _on_dl_all_finished(self):
         self._download_btn.setEnabled(True)
         self._download_all_btn.setEnabled(True)
-        ok = success and md.check_model_status(model_id) == md.DownloadState.DOWNLOADED
-        self._download_label.setText(
-            t("model.done") if ok else t("model.failed")
-        )
-        self._refresh_model_table()
+        md.clear_queue()
 
     def _add_general_tab(self):
         tab = QWidget()
@@ -613,17 +657,33 @@ class SettingsDialog(QDialog):
         btn_layout.addWidget(self._download_all_btn)
         layout.addLayout(btn_layout)
 
-        self._progress_bar = QProgressBar()
-        self._progress_bar.setVisible(False)
-        layout.addWidget(self._progress_bar)
-
-        self._download_label = QLabel("")
-        layout.addWidget(self._download_label)
+        self._progress_group = QGroupBox(t("model.progress_panel"))
+        self._progress_group.setVisible(False)
+        progress_layout = QVBoxLayout(self._progress_group)
+        progress_layout.setSpacing(4)
+        self._dl_rows: dict[str, tuple[QProgressBar, QLabel]] = {}
+        for mid in md.DOWNLOAD_ORDER:
+            row_layout = QHBoxLayout()
+            name_label = QLabel(md.MODELS[mid].name)
+            name_label.setFixedWidth(120)
+            row_layout.addWidget(name_label)
+            bar = QProgressBar()
+            bar.setMinimum(0)
+            bar.setMaximum(100)
+            bar.setValue(0)
+            row_layout.addWidget(bar, stretch=1)
+            status_label = QLabel("")
+            status_label.setFixedWidth(80)
+            row_layout.addWidget(status_label)
+            progress_layout.addLayout(row_layout)
+            self._dl_rows[mid] = (bar, status_label)
+        layout.addWidget(self._progress_group)
 
         layout.addStretch()
         self.tabs.addTab(tab, t("model.tab"))
 
         self._refresh_model_table()
+        self._check_resume_queue()
 
     def _add_about_tab(self):
         tab = QWidget()
