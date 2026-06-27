@@ -66,6 +66,9 @@ class Config:
         "print_vad": False,
         "log_asr_unverified": False,
     })
+    download: dict = field(default_factory=lambda: {
+        "mirror_url": "",
+    })
     logging: dict = field(default_factory=lambda: {
         "level": "INFO",
         "file": "",

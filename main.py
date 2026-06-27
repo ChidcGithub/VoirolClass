@@ -7,7 +7,7 @@ from voirol.core.pipeline import VoicePipeline
 from voirol.gui.tray import create_tray_icon
 from voirol.utils.i18n import state_name, t
 from voirol.utils.logger import get_logger, setup_file_logger
-from voirol.voice.models import ensure_silero_vad
+from voirol.voice.model_download import check_model_status
 
 logger = get_logger("main")
 
@@ -30,14 +30,11 @@ def main():
 
     logger.info("Starting VoirolClass...")
 
-    logger.info("Ensuring Silero VAD model...")
-    try:
-        ensure_silero_vad("models")
-    except Exception as e:
-        logger.error(f"Failed to get VAD model: {e}")
-        print(t("app.download_error", e=e))
-        input(t("app.press_enter"))
-        return
+    missing = [mid for mid in ["silero_vad", "sensevoice", "vosk_zh", "vosk_en"]
+               if check_model_status(mid) == "missing"]
+    if missing:
+        logger.warning(f"Models not downloaded: {', '.join(missing)}")
+        print(t("app.model_missing_hint"))
 
     from PyQt6.QtGui import QFont, QFontDatabase
     from PyQt6.QtWidgets import QApplication

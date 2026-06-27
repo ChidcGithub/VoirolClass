@@ -30,6 +30,7 @@ def download_file(
     mirrors: list[str] | None = None,
     timeout: int = DOWNLOAD_TIMEOUT,
     retries: int = MAX_RETRIES,
+    progress_callback: callable | None = None,
 ) -> str:
     os.makedirs(dest_path, exist_ok=True)
     full_path = os.path.join(dest_path, filename)
@@ -66,7 +67,9 @@ def download_file(
                             f.write(chunk)
                             downloaded += len(chunk)
                             if total > 0:
-                                pct = downloaded / total * 100
+                                pct = int(downloaded / total * 100)
+                                if progress_callback:
+                                    progress_callback(pct)
                                 if pct - last_log >= 5 or downloaded == total:
                                     logger.info(
                                         f"  {label}: {downloaded/1024/1024:.1f}/"
@@ -77,6 +80,8 @@ def download_file(
 
                 size_mb = os.path.getsize(full_path) / 1024 / 1024
                 logger.info(f"Downloaded {label}: {size_mb:.1f} MB")
+                if progress_callback:
+                    progress_callback(100)
                 return full_path
 
             except requests.RequestException as e:

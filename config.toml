@@ -51,6 +51,9 @@ verbose = true
 print_vad = false
 log_asr_unverified = true
 
+[download]
+mirror_url = ""
+
 [logging]
 level = "INFO"
 file = ""

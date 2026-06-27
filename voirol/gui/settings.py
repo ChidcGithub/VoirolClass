@@ -10,19 +10,24 @@ from PyQt6.QtWidgets import (
     QFrame,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QListWidget,
+    QProgressBar,
     QPushButton,
     QSpinBox,
+    QTableWidget,
+    QTableWidgetItem,
     QTabWidget,
     QVBoxLayout,
     QWidget,
     QMessageBox,
 )
-
 from voirol.core.config import save_config
+
 from voirol.core.pipeline import VoicePipeline
+from voirol.voice import model_download as md
 from voirol.utils.i18n import get_language, set_language, t
 from voirol.utils.logger import get_logger
 
@@ -152,6 +157,7 @@ class SettingsDialog(QDialog):
 
         self._add_voice_tab()
         self._add_general_tab()
+        self._add_model_tab()
         self._add_about_tab()
 
 
@@ -374,6 +380,100 @@ class SettingsDialog(QDialog):
         save_config(self.pipeline.config)
         logger.info(f"Ring buffer seconds set to {value}")
 
+    def _on_mirror_changed(self):
+        self.pipeline.config.download["mirror_url"] = self._mirror_input.text().strip()
+        save_config(self.pipeline.config)
+
+    def _on_test_mirror(self):
+        url = self._mirror_input.text().strip()
+        if not url:
+            self._mirror_status.setText(t("model.test_fail", error="no input"))
+            return
+        self._test_mirror_btn.setEnabled(False)
+        self._mirror_status.setText("...")
+        QApplication.processEvents()
+        ok, msg = md.test_mirror(url)
+        self._mirror_status.setText(
+            t("model.test_success", status=msg) if ok
+            else t("model.test_fail", error=msg)
+        )
+        self._mirror_status.setStyleSheet("color: #4caf50;" if ok else "color: #f44336;")
+        self._test_mirror_btn.setEnabled(True)
+
+    def _refresh_model_table(self):
+        self._model_table.setRowCount(0)
+        model_ids = ["silero_vad", "sensevoice", "vosk_zh", "vosk_en", "campplus"]
+        for mid in model_ids:
+            entry = md.MODELS.get(mid)
+            if not entry:
+                continue
+            status = md.check_model_status(mid)
+            row = self._model_table.rowCount()
+            self._model_table.insertRow(row)
+            self._model_table.setItem(row, 0, QTableWidgetItem(entry.name))
+            self._model_table.setItem(row, 1, QTableWidgetItem(entry.size))
+            if status == md.DownloadState.DOWNLOADED:
+                status_text = t("model.status_downloaded")
+            elif status == md.DownloadState.AUTO:
+                status_text = t("model.status_auto")
+            else:
+                status_text = t("model.status_missing")
+            item = QTableWidgetItem(status_text)
+            self._model_table.setItem(row, 2, item)
+            self._model_table.item(row, 0).setData(256, mid)
+
+    def _get_selected_model_id(self) -> str | None:
+        row = self._model_table.currentRow()
+        if row < 0:
+            return None
+        return self._model_table.item(row, 0).data(256)
+
+    def _on_download_selected(self):
+        mid = self._get_selected_model_id()
+        if not mid:
+            QMessageBox.warning(self, t("prompt.title"), t("model.select_hint"))
+            return
+        self._start_download(mid)
+
+    def _on_download_all(self):
+        for mid in ["silero_vad", "sensevoice", "vosk_zh", "vosk_en"]:
+            if md.check_model_status(mid) == md.DownloadState.MISSING:
+                self._start_download(mid)
+
+    def _start_download(self, model_id: str):
+        mirror = self._mirror_input.text().strip()
+        self._progress_bar.setVisible(True)
+        self._progress_bar.setValue(0)
+        self._download_label.setText(t("model.downloading", name=md.MODELS[model_id].name))
+        self._download_btn.setEnabled(False)
+        self._download_all_btn.setEnabled(False)
+        QApplication.processEvents()
+
+        def cb(pct):
+            self._progress_bar.setValue(pct)
+            self._download_label.setText(
+                t("model.downloading", name=md.MODELS[model_id].name) + " " +
+                t("model.progress", pct=pct)
+            )
+            QApplication.processEvents()
+
+        def done():
+            self._progress_bar.setVisible(False)
+            self._download_btn.setEnabled(True)
+            self._download_all_btn.setEnabled(True)
+            ok = md.check_model_status(model_id) == md.DownloadState.DOWNLOADED
+            self._download_label.setText(
+                t("model.done") if ok else t("model.failed")
+            )
+            self._refresh_model_table()
+
+        import threading
+        def task():
+            md.download_model(model_id, mirror, progress_callback=cb)
+            done()
+
+        threading.Thread(target=task, daemon=True).start()
+
     def _add_general_tab(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
@@ -421,6 +521,74 @@ class SettingsDialog(QDialog):
 
         layout.addStretch()
         self.tabs.addTab(tab, t("tab.general"))
+
+    def _add_model_tab(self):
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(8)
+
+        mirror_label = QLabel(t("model.mirror_url"))
+        layout.addWidget(mirror_label)
+
+        mirror_layout = QHBoxLayout()
+        self._mirror_input = QLineEdit()
+        self._mirror_input.setPlaceholderText("https://ghproxy.com")
+        self._mirror_input.setText(self.pipeline.config.download.get("mirror_url", ""))
+        self._mirror_input.textChanged.connect(self._on_mirror_changed)
+        mirror_layout.addWidget(self._mirror_input)
+
+        self._test_mirror_btn = QPushButton(t("model.test_mirror"))
+        self._test_mirror_btn.clicked.connect(self._on_test_mirror)
+        mirror_layout.addWidget(self._test_mirror_btn)
+
+        self._mirror_status = QLabel("")
+        mirror_layout.addWidget(self._mirror_status)
+        layout.addLayout(mirror_layout)
+
+        layout.addSpacing(8)
+
+        self._model_table = QTableWidget()
+        self._model_table.setColumnCount(3)
+        self._model_table.setHorizontalHeaderLabels([
+            t("model.name"), t("model.size"), t("model.status")
+        ])
+        self._model_table.horizontalHeader().setStretchLastSection(True)
+        self._model_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Stretch
+        )
+        self._model_table.setSelectionBehavior(
+            QTableWidget.SelectionBehavior.SelectRows
+        )
+        self._model_table.setSelectionMode(
+            QTableWidget.SelectionMode.SingleSelection
+        )
+        self._model_table.setEditTriggers(
+            QTableWidget.EditTrigger.NoEditTriggers
+        )
+        layout.addWidget(self._model_table)
+
+        btn_layout = QHBoxLayout()
+        self._download_btn = QPushButton(t("model.download_selected"))
+        self._download_btn.clicked.connect(self._on_download_selected)
+        btn_layout.addWidget(self._download_btn)
+
+        self._download_all_btn = QPushButton(t("model.download_all"))
+        self._download_all_btn.clicked.connect(self._on_download_all)
+        btn_layout.addWidget(self._download_all_btn)
+        layout.addLayout(btn_layout)
+
+        self._progress_bar = QProgressBar()
+        self._progress_bar.setVisible(False)
+        layout.addWidget(self._progress_bar)
+
+        self._download_label = QLabel("")
+        layout.addWidget(self._download_label)
+
+        layout.addStretch()
+        self.tabs.addTab(tab, t("model.tab"))
+
+        self._refresh_model_table()
 
     def _add_about_tab(self):
         tab = QWidget()

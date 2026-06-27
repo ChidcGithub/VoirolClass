@@ -1,36 +1,12 @@
 import json
 import os
-import zipfile
 
 import numpy as np
 
 from voirol.asr.engine import ASREngine
-from voirol.utils.download import download_file
 from voirol.utils.logger import get_logger
 
 logger = get_logger("asr.vosk")
-
-VOSK_MODEL_URLS = {
-    "zh-cn": (
-        "https://mirrors.ustc.edu.cn/vosk-models/"
-        "vosk-model-small-cn-0.22.zip"
-    ),
-    "en-us": (
-        "https://mirrors.ustc.edu.cn/vosk-models/"
-        "vosk-model-small-en-us-0.15.zip"
-    ),
-}
-
-VOSK_MIRROR_URLS = {
-    "zh-cn": [
-        "https://alphacephei.com/vosk/models/"
-        "vosk-model-small-cn-0.22.zip",
-    ],
-    "en-us": [
-        "https://alphacephei.com/vosk/models/"
-        "vosk-model-small-en-us-0.15.zip",
-    ],
-}
 
 
 class VoskEngine(ASREngine):
@@ -46,51 +22,10 @@ class VoskEngine(ASREngine):
     def _ensure_model(self):
         if os.path.exists(self.model_path) and os.listdir(self.model_path):
             return
-
-        url = VOSK_MODEL_URLS.get(self.language)
-        mirrors = VOSK_MIRROR_URLS.get(self.language, [])
-        if not url:
-            raise ValueError(f"Unsupported language: {self.language}")
-
-        parent = os.path.dirname(self.model_path) or "."
-        zip_path = os.path.join(parent, f"vosk_{self.language}.zip")
-
-        try:
-            download_file(
-                url=url,
-                dest_path=parent,
-                filename=os.path.basename(zip_path),
-                desc=f"Vosk model ({self.language})",
-                mirrors=mirrors,
-                timeout=120,
-                retries=3,
-            )
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to download Vosk model for {self.language}. "
-                f"Manual download: {url}" 
-            ) from e
-
-        logger.info("Extracting Vosk model...")
-        with zipfile.ZipFile(zip_path, "r") as zf:
-            zf.extractall(parent)
-
-        extracted = [
-            d
-            for d in os.listdir(parent)
-            if os.path.isdir(os.path.join(parent, d))
-            and d.startswith("vosk-model")
-        ]
-        if extracted:
-            src = os.path.join(parent, extracted[0])
-            if os.path.exists(self.model_path):
-                import shutil
-
-                shutil.rmtree(self.model_path)
-            os.rename(src, self.model_path)
-
-        os.remove(zip_path)
-        logger.info(f"Vosk model ready at {self.model_path}")
+        raise FileNotFoundError(
+            f"Vosk model not found at {self.model_path}. "
+            f"Download it in Settings -> Model Download tab."
+        )
 
     def load(self):
         try:
