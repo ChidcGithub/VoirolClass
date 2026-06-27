@@ -4,6 +4,7 @@ import numpy as np
 
 from voirol.core.config import load_config
 from voirol.core.pipeline import VoicePipeline
+from voirol.gui.theme import Theme, apply_theme, detect_system_theme
 from voirol.gui.tray import create_tray_icon
 from voirol.utils.i18n import state_name, t
 from voirol.utils.logger import get_logger, setup_file_logger
@@ -46,6 +47,13 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("VoirolClass")
     app.setQuitOnLastWindowClosed(False)
+
+    cfg_theme = config.ui.get("theme", "system")
+    if cfg_theme == "system":
+        theme = detect_system_theme()
+    else:
+        theme = Theme(cfg_theme)
+    apply_theme(app, theme, config.ui.get("border_radius", 5))
 
     font_id = QFontDatabase.addApplicationFont("fonts/GSF.ttf")
     if font_id >= 0:

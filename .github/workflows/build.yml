@@ -1,0 +1,69 @@
+name: Build EXE
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Create config.toml from example
+        run: Copy-Item config.toml.example config.toml
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build executable with PyInstaller
+        run: |
+          pyinstaller --onefile --windowed `
+            --name VoirolClass `
+            --icon assets/img/icon.png `
+            --hidden-import keyboard `
+            --collect-all PyQt6 `
+            main.py
+
+      - name: Verify executable exists
+        run: Test-Path dist/VoirolClass.exe
+
+      - name: Install NSIS
+        run: choco install nsis -y
+
+      - name: Build installer
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $ver = $tag -replace '^v', ''
+          makensis "/DVERSION=$ver" installer.nsi
+
+      - name: Verify installer exists
+        run: Get-ChildItem VoirolClass-*-Setup.exe
+
+      - name: Generate release notes
+        run: |
+          $prev = git describe --tags --abbrev=0 HEAD^ 2>$null
+          if (-not $prev) { $prev = "HEAD~1" }
+          git log --oneline $prev..HEAD | Out-File -FilePath release_notes.txt -Encoding utf8
+          Get-Content release_notes.txt
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/VoirolClass.exe
+            VoirolClass-*-Setup.exe
+          body_path: release_notes.txt
+          generate_release_notes: true

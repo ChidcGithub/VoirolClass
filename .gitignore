@@ -15,3 +15,7 @@ models/silero_vad.onnx
 .idea/
 
 models/tmptest/
+dist/
+build/
+*.spec
+config.toml

@@ -5,6 +5,8 @@ from typing import Callable
 
 import numpy as np
 
+from voirol.ai.matcher import AIMatcher
+from voirol.ai.openai_engine import OpenAIEngine
 from voirol.asr.engine import ASREngine
 from voirol.asr.vosk_engine import VoskEngine
 from voirol.asr.sensevoice_engine import SenseVoiceEngine
@@ -143,6 +145,25 @@ class VoicePipeline:
             mode=cmd_cfg["match_mode"],
             threshold=cmd_cfg["fuzzy_threshold"],
         )
+
+        ai_cfg = config.ai
+        self._ai_matcher: AIMatcher | None = None
+        if ai_cfg.get("enabled") and ai_cfg.get("api_key"):
+            ai_engine = OpenAIEngine(
+                api_url=ai_cfg.get("api_url", "https://api.deepseek.com/v1"),
+                api_key=ai_cfg.get("api_key", ""),
+                model=ai_cfg.get("model", "deepseek-chat"),
+            )
+            self._ai_matcher = AIMatcher(
+                engine=ai_engine,
+                registry=self._cmd_registry,
+                system_prompt=ai_cfg.get("system_prompt", ""),
+                temperature=ai_cfg.get("temperature", 0.1),
+                timeout=ai_cfg.get("timeout", 10),
+            )
+            logger.info("AI command matcher enabled")
+        else:
+            logger.info("AI command matcher disabled")
 
         teacher_name = config.teacher.get("current_teacher", "")
         if teacher_name:
@@ -303,6 +324,10 @@ class VoicePipeline:
             return
 
         cmd = self.matcher.match(text)
+        if cmd is None and self._ai_matcher is not None:
+            ai_cmd = self._ai_matcher.match(text)
+            if ai_cmd is not None:
+                cmd = ai_cmd
         if cmd:
             if self._verbose:
                 print(t("cmd.matched", cmd_id=cmd.id, description=cmd.description))

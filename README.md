@@ -5,7 +5,8 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey)](https://www.microsoft.com/windows)
-[![Version](https://img.shields.io/badge/version-0.0.1--beta-orange)]()
+[![Version](https://img.shields.io/badge/version-0.0.1-orange)]()
+[![Build](https://github.com/ChidcGithub/VoirolClass/actions/workflows/build.yml/badge.svg)](https://github.com/ChidcGithub/VoirolClass/actions/workflows/build.yml)
 
 > [中文文档](README_zh.md)
 
@@ -18,7 +19,8 @@ A voice-controlled classroom assistant for teachers. Speak naturally to control 
 - **Voice Activity Detection** — Silero VAD ONNX with configurable sensitivity, speech/silence duration, and a ring buffer that preserves ~1 s of audio history to avoid cutting off sentence starts
 - **Dual ASR Engines** — SenseVoiceSmall (pure ONNX Runtime, primary) or Vosk-Kaldi (fallback), both running fully offline
 - **Speaker Verification** — CAM++ embedding via `speakeronnx` (192-dim L2-normalized vectors). Each teacher enrolls by reading 3–5 sentences; only their voice passes the similarity threshold
-- **Command Matching** — Three strategies: exact, keyword (substring), or fuzzy (SequenceMatcher ratio). Falls back through the chain automatically
+- **Command Matching** — Three strategies: exact, keyword (substring), or fuzzy (SequenceMatcher ratio). Falls back through the chain automatically, then to **AI semantic matching** (DeepSeek/OpenAI) when no keyword matches
+- **AI Semantic Matching** — Optional DeepSeek/OpenAI integration. When keyword and fuzzy matching fail, sends the transcribed text to a configurable LLM to infer the intended command from natural language
 - **Push-to-Talk** — Global hotkey (`Ctrl+Alt+V`) for hands-free toggle; also supports pure voice wake via VAD
 - **Multi-Teacher** — Register, select, and delete teacher profiles at runtime through the settings dialog
 - **i18n** — English and Chinese UI; tray, settings, pipeline logs all switch via config
@@ -28,8 +30,13 @@ A voice-controlled classroom assistant for teachers. Speak naturally to control 
 
 ```
 Microphone ─► AudioCapture ─► SileroVAD ─► SpeakerVerifier ─► ASR ─► CommandMatcher ─► Action
-                                                                    │
-                                                          (SenseVoice / Vosk)
+                                                                         │
+                                                               (SenseVoice / Vosk)
+                                                                         │
+                                                              (fallback) │
+                                                                         ▼
+                                                                   AIMatcher (AI)
+                                                                  DeepSeek/OpenAI
 ```
 
 1. **AudioCapture** reads 16 kHz PCM blocks from the microphone
@@ -37,7 +44,8 @@ Microphone ─► AudioCapture ─► SileroVAD ─► SpeakerVerifier ─► AS
 3. **SpeakerVerifier** extracts a CAM++ embedding and compares it to the enrolled teacher's profile
 4. **ASR** (SenseVoice or Vosk) transcribes the verified speech segment to text
 5. **CommandMatcher** finds the best-matching command (exact → keyword → fuzzy)
-6. **Action** executes the command — keyboard shortcut, system call, or UI action
+6. **AIMatcher** (optional, configurable) falls back to an LLM (DeepSeek / OpenAI) when no keyword matches, parsing the response as JSON to determine the command
+7. **Action** executes the command — keyboard shortcut, system call, or UI action
 
 All components are decoupled and wired together by `VoicePipeline` in `voirol/core/pipeline.py`.
 
@@ -121,11 +129,16 @@ Key settings in `config.toml`:
 | `[hotkey]` | `push_to_talk` | `ctrl+alt+v` | PTT hotkey |
 | `[ui]` | `font_size` | `13` | Font size (px) |
 | | `border_radius` | `5` | Widget corner radius (px) |
+| `[ai]` | `enabled` | `false` | Enable AI fallback matching |
+| | `api_url` | `https://api.deepseek.com/v1` | OpenAI-compatible API endpoint |
+| | `model` | `deepseek-chat` | Model name |
+| | `temperature` | `0.1` | LLM temperature (0.0–2.0) |
 
 ## Project Structure
 
 ```
 voirol/
+├── ai/                   # AI command matcher (DeepSeek/OpenAI)
 ├── asr/                  # SenseVoice & Vosk ASR engines
 ├── audio/                # Capture, VAD, preprocessing
 ├── command/              # Command registry, matcher, actions
@@ -145,6 +158,7 @@ voirol/
 | ASR | SenseVoiceSmall ONNX / Vosk | Both offline |
 | Speaker verification | speakeronnx | CAM++ model, 192-dim embeddings |
 | Command execution | pyautogui | Keyboard/mouse simulation |
+| AI matching | DeepSeek / OpenAI API | Optional semantic fallback via LLM |
 | Hotkeys | keyboard | Global hotkey registration |
 | i18n | Custom dict | English & Chinese built-in |
 

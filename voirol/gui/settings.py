@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QPlainTextEdit,
     QProgressBar,
     QPushButton,
     QSpinBox,
@@ -29,6 +30,8 @@ from PyQt6.QtWidgets import (
 from voirol.core.config import save_config
 
 from voirol.core.pipeline import VoicePipeline
+from voirol.ai.matcher import DEFAULT_SYSTEM_PROMPT
+from voirol.gui.theme import Theme, apply_theme, detect_system_theme
 from voirol.voice import model_download as md
 from voirol.utils.i18n import get_language, set_language, t
 from voirol.utils.logger import get_logger
@@ -51,105 +54,7 @@ class SettingsDialog(QDialog):
         self.setMinimumWidth(560)
         self.setMinimumHeight(500)
 
-        br = self.pipeline.config.ui.get("border_radius", 5)
-        self.setStyleSheet(f"""
-            QDialog {{
-                background-color: #1e1e1e;
-                color: #e0e0e0;
-            }}
-            QTabWidget::pane {{
-                background-color: #1e1e1e;
-                border: none;
-            }}
-            QTabBar::tab {{
-                background-color: #2d2d2d;
-                color: #999;
-                padding: 8px 20px;
-                border: none;
-                min-width: 80px;
-            }}
-            QTabBar::tab:selected {{
-                background-color: #3c3c3c;
-                color: #ffffff;
-                border-bottom: 2px solid #ffffff;
-            }}
-            QTabBar::tab:hover:!selected {{
-                background-color: #353535;
-                color: #ccc;
-            }}
-            QGroupBox {{
-                background-color: #1e1e1e;
-                border: 1px solid #555;
-                border-radius: {br}px;
-                margin-top: 12px;
-                padding: 16px 12px 12px;
-                font-weight: normal;
-                color: #ffffff;
-            }}
-            QGroupBox::title {{
-                subcontrol-origin: margin;
-                left: 12px;
-                padding: 0 4px;
-                color: #ffffff;
-            }}
-            QPushButton {{
-                background-color: #3c3c3c;
-                color: #e0e0e0;
-                border: 1px solid #555;
-                border-radius: {br}px;
-                padding: 6px 16px;
-                min-height: 24px;
-            }}
-            QPushButton:hover {{
-                background-color: #4a4a4a;
-                border-color: #777;
-            }}
-            QPushButton:pressed {{
-                background-color: #555;
-            }}
-            QPushButton:disabled {{
-                background-color: #2a2a2a;
-                color: #666;
-                border-color: #444;
-            }}
-            QListWidget {{
-                background-color: #252525;
-                color: #e0e0e0;
-                border: 1px solid #555;
-                border-radius: {br}px;
-                outline: none;
-            }}
-            QListWidget::item {{
-                padding: 6px 8px;
-                border-radius: 2px;
-            }}
-            QListWidget::item:selected {{
-                background-color: #4a4a4a;
-                color: #ffffff;
-            }}
-            QListWidget::item:hover:!selected {{
-                background-color: #333;
-            }}
-            QCheckBox {{
-                color: #e0e0e0;
-                spacing: 8px;
-            }}
-            QCheckBox::indicator {{
-                width: 16px;
-                height: 16px;
-                border: 1px solid #777;
-                border-radius: 2px;
-                background-color: #2d2d2d;
-            }}
-            QCheckBox::indicator:checked {{
-                background-color: #4a90d9;
-                border-color: #4a90d9;
-                image: url(assets/img/checkmark.svg);
-            }}
-            QLabel {{
-                color: #e0e0e0;
-            }}
-        """)
+        self._apply_current_theme()
 
         layout = QVBoxLayout(self)
         layout.setSpacing(0)
@@ -161,6 +66,7 @@ class SettingsDialog(QDialog):
 
         self._add_voice_tab()
         self._add_general_tab()
+        self._add_ai_tab()
         self._add_model_tab()
         self._add_about_tab()
 
@@ -475,6 +381,15 @@ class SettingsDialog(QDialog):
         save_config(self.pipeline.config)
         logger.info(f"Ring buffer seconds set to {value}")
 
+    def _apply_current_theme(self):
+        cfg_theme = self.pipeline.config.ui.get("theme", "system")
+        if cfg_theme == "system":
+            theme = detect_system_theme()
+        else:
+            theme = Theme(cfg_theme)
+        br = self.pipeline.config.ui.get("border_radius", 5)
+        apply_theme(self, theme, br)
+
     def _on_mirror_changed(self):
         self.pipeline.config.download["mirror_url"] = self._mirror_input.text().strip()
         save_config(self.pipeline.config)
@@ -674,6 +589,25 @@ class SettingsDialog(QDialog):
         )
         layout.addWidget(br_spin)
 
+        layout.addSpacing(12)
+
+        theme_label = QLabel(t("ui.theme"))
+        layout.addWidget(theme_label)
+
+        theme_combo = QComboBox()
+        theme_combo.addItem(t("ui.theme_system"), "system")
+        theme_combo.addItem(t("ui.theme_light"), "light")
+        theme_combo.addItem(t("ui.theme_dark"), "dark")
+        current_theme = self.pipeline.config.ui.get("theme", "system")
+        theme_combo.setCurrentIndex(
+            ["system", "light", "dark"].index(current_theme)
+            if current_theme in ("system", "light", "dark") else 0
+        )
+        theme_combo.currentIndexChanged.connect(
+            lambda i: _on_theme_changed(self, theme_combo.itemData(i))
+        )
+        layout.addWidget(theme_combo)
+
         layout.addStretch()
         self.tabs.addTab(tab, t("tab.general"))
 
@@ -761,6 +695,106 @@ class SettingsDialog(QDialog):
         self._refresh_model_table()
         self._check_resume_queue()
 
+    def _add_ai_tab(self):
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(8)
+
+        ai_cfg = self.pipeline.config.ai
+
+        self._ai_enabled_cb = QCheckBox(t("ai.enable"))
+        self._ai_enabled_cb.setChecked(ai_cfg.get("enabled", False))
+        self._ai_enabled_cb.toggled.connect(self._on_ai_config_changed)
+        layout.addWidget(self._ai_enabled_cb)
+
+        api_url_label = QLabel(t("ai.api_url"))
+        layout.addWidget(api_url_label)
+
+        self._ai_api_url_input = QLineEdit()
+        self._ai_api_url_input.setPlaceholderText("https://api.deepseek.com/v1")
+        self._ai_api_url_input.setText(ai_cfg.get("api_url", ""))
+        self._ai_api_url_input.textChanged.connect(self._on_ai_config_changed)
+        layout.addWidget(self._ai_api_url_input)
+
+        api_key_label = QLabel(t("ai.api_key"))
+        layout.addWidget(api_key_label)
+
+        self._ai_api_key_input = QLineEdit()
+        self._ai_api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self._ai_api_key_input.setPlaceholderText("sk-...")
+        self._ai_api_key_input.setText(ai_cfg.get("api_key", ""))
+        self._ai_api_key_input.textChanged.connect(self._on_ai_config_changed)
+        layout.addWidget(self._ai_api_key_input)
+
+        model_label = QLabel(t("ai.model"))
+        layout.addWidget(model_label)
+
+        self._ai_model_input = QLineEdit()
+        self._ai_model_input.setPlaceholderText("deepseek-chat")
+        self._ai_model_input.setText(ai_cfg.get("model", "deepseek-chat"))
+        self._ai_model_input.textChanged.connect(self._on_ai_config_changed)
+        layout.addWidget(self._ai_model_input)
+
+        temp_label = QLabel(t("ai.temperature"))
+        layout.addWidget(temp_label)
+
+        self._ai_temp_spin = QDoubleSpinBox()
+        self._ai_temp_spin.setRange(0.0, 2.0)
+        self._ai_temp_spin.setSingleStep(0.1)
+        self._ai_temp_spin.setDecimals(1)
+        self._ai_temp_spin.setValue(ai_cfg.get("temperature", 0.1))
+        self._ai_temp_spin.valueChanged.connect(self._on_ai_config_changed)
+        layout.addWidget(self._ai_temp_spin)
+
+        timeout_label = QLabel(t("ai.timeout"))
+        layout.addWidget(timeout_label)
+
+        self._ai_timeout_spin = QSpinBox()
+        self._ai_timeout_spin.setRange(5, 60)
+        self._ai_timeout_spin.setValue(ai_cfg.get("timeout", 10))
+        self._ai_timeout_spin.valueChanged.connect(self._on_ai_config_changed)
+        layout.addWidget(self._ai_timeout_spin)
+
+        layout.addSpacing(12)
+
+        prompt_label = QLabel(t("ai.system_prompt"))
+        layout.addWidget(prompt_label)
+
+        self._ai_prompt_edit = QPlainTextEdit()
+        self._ai_prompt_edit.setPlaceholderText("")
+        prompt_text = ai_cfg.get("system_prompt", "") or DEFAULT_SYSTEM_PROMPT
+        try:
+            prompt_text.format(commands_list="test", user_text="test")
+        except KeyError:
+            prompt_text = DEFAULT_SYSTEM_PROMPT
+            self.pipeline.config.ai["system_prompt"] = ""
+        self._ai_prompt_edit.setPlainText(prompt_text)
+        self._ai_prompt_edit.textChanged.connect(self._on_ai_config_changed)
+        self._ai_prompt_edit.setMinimumHeight(120)
+        layout.addWidget(self._ai_prompt_edit)
+
+        reset_btn = QPushButton(t("ai.reset_default_prompt"))
+        reset_btn.clicked.connect(self._on_ai_reset_prompt)
+        layout.addWidget(reset_btn)
+
+        layout.addStretch()
+        self.tabs.addTab(tab, t("ai.tab"))
+
+    def _on_ai_config_changed(self):
+        self.pipeline.config.ai["enabled"] = self._ai_enabled_cb.isChecked()
+        self.pipeline.config.ai["api_url"] = self._ai_api_url_input.text().strip()
+        self.pipeline.config.ai["api_key"] = self._ai_api_key_input.text().strip()
+        self.pipeline.config.ai["model"] = self._ai_model_input.text().strip()
+        self.pipeline.config.ai["temperature"] = self._ai_temp_spin.value()
+        self.pipeline.config.ai["timeout"] = self._ai_timeout_spin.value()
+        prompt = self._ai_prompt_edit.toPlainText()
+        self.pipeline.config.ai["system_prompt"] = "" if prompt == DEFAULT_SYSTEM_PROMPT else prompt
+        save_config(self.pipeline.config)
+
+    def _on_ai_reset_prompt(self):
+        self._ai_prompt_edit.setPlainText(DEFAULT_SYSTEM_PROMPT)
+
     def _add_about_tab(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
@@ -778,6 +812,13 @@ def _on_lang_changed(dialog: SettingsDialog, lang_code: str):
     dialog.pipeline.config.general["language"] = lang_code
     save_config(dialog.pipeline.config)
     QMessageBox.information(dialog, t("prompt.title"), t("general.restart_hint"))
+
+
+def _on_theme_changed(dialog: SettingsDialog, theme_value: str):
+    dialog.pipeline.config.ui["theme"] = theme_value
+    save_config(dialog.pipeline.config)
+    dialog._apply_current_theme()
+    logger.info(f"Theme changed to: {theme_value}")
 
 
 def _on_ui_changed(dialog: SettingsDialog, key: str, value: int):

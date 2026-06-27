@@ -61,6 +61,7 @@ class Config:
     ui: dict = field(default_factory=lambda: {
         "font_size": 13,
         "border_radius": 5,
+        "theme": "system",
     })
     teacher: dict = field(default_factory=lambda: {
         "current_teacher": "",
@@ -72,6 +73,16 @@ class Config:
     })
     download: dict = field(default_factory=lambda: {
         "mirror_url": "",
+    })
+    ai: dict = field(default_factory=lambda: {
+        "enabled": False,
+        "provider": "openai",
+        "api_url": "https://api.deepseek.com/v1",
+        "api_key": "",
+        "model": "deepseek-chat",
+        "temperature": 0.1,
+        "timeout": 10,
+        "system_prompt": "",
     })
     logging: dict = field(default_factory=lambda: {
         "level": "INFO",
