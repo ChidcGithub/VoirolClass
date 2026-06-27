@@ -84,6 +84,7 @@ class VoicePipeline:
         self._vad_ready = self.vad.is_ready()
         if not self._vad_ready:
             logger.warning("Silero VAD model not found. Voice detection disabled.")
+        self._asr_ready = False
 
         voice_cfg = config.voice
         self.verifier = SpeakerVerifier(
@@ -236,6 +237,12 @@ class VoicePipeline:
 
         self._set_state(PipelineState.PROCESSING)
 
+        if not self._asr_ready:
+            if self._verbose:
+                print(t("asr.not_ready"))
+            self._set_state(PipelineState.IDLE)
+            return
+
         if self._verbose:
             print(t("asr.running"))
 
@@ -286,7 +293,12 @@ class VoicePipeline:
             return
 
         logger.info("Starting voice pipeline...")
-        self.asr_engine.load()
+        try:
+            self.asr_engine.load()
+            self._asr_ready = True
+        except Exception as e:
+            logger.warning(f"ASR engine failed to load: {e}. Voice commands disabled.")
+            self._asr_ready = False
 
         self.capture.start()
         self._running = True
