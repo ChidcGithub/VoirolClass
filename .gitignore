@@ -12,3 +12,5 @@ models/sensevoice/*.tar.bz2
 models/vosk/am/final.mdl
 .vscode/
 .idea/
+
+models/tmptest/

@@ -1,5 +1,6 @@
 import os
 import time
+from collections.abc import Callable
 
 import requests
 
@@ -30,7 +31,7 @@ def download_file(
     mirrors: list[str] | None = None,
     timeout: int = DOWNLOAD_TIMEOUT,
     retries: int = MAX_RETRIES,
-    progress_callback: callable | None = None,
+    progress_callback: Callable[[int], None] | None = None,
 ) -> str:
     os.makedirs(dest_path, exist_ok=True)
     full_path = os.path.join(dest_path, filename)

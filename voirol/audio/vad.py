@@ -24,19 +24,23 @@ class SileroVAD:
         self.sample_rate = sample_rate
         self.min_speech_frames = int(min_speech_duration * sample_rate / 512)
         self.silence_frames = int(silence_duration * sample_rate / 512)
-        self._session = onnxruntime.InferenceSession(
-            model_path, providers=["CPUExecutionProvider"]
-        )
-        self._input_names = [
-            inp.name for inp in self._session.get_inputs()
-        ]
-        self._input_name = "input"
-        self._sr_name = "sr"
-        self._state_name = "state"
-        if "input" not in self._input_names:
-            self._input_name = self._input_names[0]
-        if "sr" not in self._input_names:
-            self._sr_name = self._input_names[1] if len(self._input_names) > 1 else self._input_names[0]
+        try:
+            self._session = onnxruntime.InferenceSession(
+                model_path, providers=["CPUExecutionProvider"]
+            )
+            self._input_names = [
+                inp.name for inp in self._session.get_inputs()
+            ]
+            self._input_name = "input"
+            self._sr_name = "sr"
+            self._state_name = "state"
+            if "input" not in self._input_names:
+                self._input_name = self._input_names[0]
+            if "sr" not in self._input_names:
+                self._sr_name = self._input_names[1] if len(self._input_names) > 1 else self._input_names[0]
+        except Exception as e:
+            logger.error(f"Failed to load Silero VAD model: {e}")
+            self._session = None
         self._state = np.zeros((2, 1, 128), dtype=np.float32)
         self._context_size = 64
         self._context = np.zeros((1, self._context_size), dtype=np.float32)
@@ -57,6 +61,8 @@ class SileroVAD:
         return audio.astype(np.float32)
 
     def process_chunk(self, audio: np.ndarray) -> float:
+        if self._session is None:
+            return 0.0
         audio = self._validate_input(audio)
         if len(audio) < 512:
             audio = np.pad(audio, (0, 512 - len(audio)))
@@ -97,6 +103,9 @@ class SileroVAD:
             return True
 
         return self._is_speech
+
+    def is_ready(self) -> bool:
+        return self._session is not None
 
     def reset(self):
         self._state = np.zeros((2, 1, 128), dtype=np.float32)

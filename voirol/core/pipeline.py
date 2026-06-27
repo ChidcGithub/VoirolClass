@@ -81,6 +81,9 @@ class VoicePipeline:
             min_speech_duration=vad_cfg["min_speech_duration"],
             silence_duration=vad_cfg["silence_duration"],
         )
+        self._vad_ready = self.vad.is_ready()
+        if not self._vad_ready:
+            logger.warning("Silero VAD model not found. Voice detection disabled.")
 
         voice_cfg = config.voice
         self.verifier = SpeakerVerifier(
@@ -166,6 +169,8 @@ class VoicePipeline:
                 logger.error(f"State callback error: {e}")
 
     def _process_audio(self, audio: np.ndarray):
+        if not self._vad_ready:
+            return
         processed = preprocess(audio, self.config.general["sample_rate"])
         prob = self.vad.process_chunk(processed)
         self.vad.is_speech_segment(prob)
