@@ -43,9 +43,12 @@ jobs:
 
       - name: Build installer
         run: |
-          $tag = "${{ github.ref_name }}"
-          $ver = $tag -replace '^v', ''
-          makensis "/DVERSION=$ver" installer.nsi
+          $ver = "${{ github.ref_name }}" -replace '^v', ''
+          $nsis = "C:\Program Files (x86)\NSIS\makensis.exe"
+          if (-not (Test-Path $nsis)) {
+            $nsis = "makensis"
+          }
+          & $nsis "/DVERSION=$ver" installer.nsi
 
       - name: Verify installer exists
         run: Get-ChildItem VoirolClass-*-Setup.exe
