@@ -36,8 +36,12 @@ def main():
         logger.warning(f"Models not downloaded: {', '.join(missing)}")
         print(t("app.model_missing_hint"))
 
-    from PyQt6.QtGui import QFont, QFontDatabase
+    from PyQt6.QtGui import QFont, QFontDatabase, QSurfaceFormat
     from PyQt6.QtWidgets import QApplication
+
+    fmt = QSurfaceFormat()
+    fmt.setAlphaBufferSize(8)
+    QSurfaceFormat.setDefaultFormat(fmt)
 
     app = QApplication(sys.argv)
     app.setApplicationName("VoirolClass")
@@ -72,6 +76,12 @@ def main():
     def update_tray_state(state):
         tray_menu._status_action.setText(state_name(state.value))
     pipeline.on_state_change(update_tray_state)
+
+    from voirol.gui.indicator import ListeningIndicator
+    indicator = ListeningIndicator()
+    indicator.show()
+    pipeline.on_state_change(lambda s: indicator.set_state(s))
+    pipeline.on_audio_level(lambda lv: indicator.set_level(lv))
 
     print(t("app.running"))
     print(t("app.running_hint") + "\n")

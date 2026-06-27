@@ -19,15 +19,19 @@ ring_buffer_seconds = 1.5
 
 [asr]
 engine = "sensevoice"
-vosk_model_path = "models/vosk"
+vosk_model_path = "models/vosk_zh"
 vosk_language = "zh-cn"
 sensevoice_model_path = "models/sensevoice"
 sensevoice_num_threads = 2
 sensevoice_language = "zh"
 sensevoice_use_itn = false
 baidu_app_id = ""
-baidu_api_key = "Ky87eDaUg4eRds3fs1ISHMA6"
-baidu_secret_key = "Uy1odiDkDiBhYYyHPsvZ4c13GJTJqI7V"
+baidu_api_key = ""
+baidu_secret_key = ""
+azure_subscription_key = ""
+azure_region = ""
+tencent_secret_id = ""
+tencent_secret_key = ""
 mode = "offline"
 
 [commands]

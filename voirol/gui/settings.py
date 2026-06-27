@@ -1,5 +1,6 @@
 import numpy as np
 from PyQt6.QtCore import Qt, QThread
+from PyQt6.QtGui import QColor, QFont, QIcon
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -17,6 +18,7 @@ from PyQt6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QSpinBox,
+    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -44,6 +46,7 @@ class SettingsDialog(QDialog):
         super().__init__()
         self.pipeline = pipeline
         self.setWindowTitle(t("settings.title"))
+        self.setWindowIcon(QIcon("assets/img/icon.png"))
 
         self.setMinimumWidth(560)
         self.setMinimumHeight(500)
@@ -139,8 +142,9 @@ class SettingsDialog(QDialog):
                 background-color: #2d2d2d;
             }}
             QCheckBox::indicator:checked {{
-                background-color: #555;
-                border-color: #aaa;
+                background-color: #4a90d9;
+                border-color: #4a90d9;
+                image: url(assets/img/checkmark.svg);
             }}
             QLabel {{
                 color: #e0e0e0;
@@ -218,22 +222,62 @@ class SettingsDialog(QDialog):
 
         asr_layout.addSpacing(6)
 
-        self._baidu_api_label = QLabel(t("asr.baidu_api_key"))
+        self._api_stack = QStackedWidget()
+
+        baidu_page = QWidget()
+        baidu_form = QVBoxLayout(baidu_page)
+        baidu_form.setContentsMargins(0, 0, 0, 0)
+        baidu_form.addWidget(QLabel(t("asr.baidu_api_key")))
         self._baidu_api_input = QLineEdit()
         self._baidu_api_input.setPlaceholderText(t("asr.baidu_api_key"))
         self._baidu_api_input.setText(self.pipeline.config.asr.get("baidu_api_key", ""))
         self._baidu_api_input.textChanged.connect(lambda: _on_baidu_key_changed(self, self._baidu_api_input, self._baidu_secret_input))
-        asr_layout.addWidget(self._baidu_api_label)
-        asr_layout.addWidget(self._baidu_api_input)
-
-        self._baidu_secret_label = QLabel(t("asr.baidu_secret_key"))
+        baidu_form.addWidget(self._baidu_api_input)
+        baidu_form.addWidget(QLabel(t("asr.baidu_secret_key")))
         self._baidu_secret_input = QLineEdit()
         self._baidu_secret_input.setEchoMode(QLineEdit.EchoMode.Password)
         self._baidu_secret_input.setPlaceholderText(t("asr.baidu_secret_key"))
         self._baidu_secret_input.setText(self.pipeline.config.asr.get("baidu_secret_key", ""))
         self._baidu_secret_input.textChanged.connect(lambda: _on_baidu_key_changed(self, self._baidu_api_input, self._baidu_secret_input))
-        asr_layout.addWidget(self._baidu_secret_label)
-        asr_layout.addWidget(self._baidu_secret_input)
+        baidu_form.addWidget(self._baidu_secret_input)
+        self._api_stack.addWidget(baidu_page)
+
+        azure_page = QWidget()
+        azure_form = QVBoxLayout(azure_page)
+        azure_form.setContentsMargins(0, 0, 0, 0)
+        azure_form.addWidget(QLabel(t("asr.azure_subscription_key")))
+        self._azure_sub_input = QLineEdit()
+        self._azure_sub_input.setPlaceholderText(t("asr.azure_subscription_key"))
+        self._azure_sub_input.setText(self.pipeline.config.asr.get("azure_subscription_key", ""))
+        self._azure_sub_input.textChanged.connect(lambda: _on_azure_key_changed(self, self._azure_sub_input, self._azure_region_input))
+        azure_form.addWidget(self._azure_sub_input)
+        azure_form.addWidget(QLabel(t("asr.azure_region")))
+        self._azure_region_input = QLineEdit()
+        self._azure_region_input.setPlaceholderText("eastasia")
+        self._azure_region_input.setText(self.pipeline.config.asr.get("azure_region", ""))
+        self._azure_region_input.textChanged.connect(lambda: _on_azure_key_changed(self, self._azure_sub_input, self._azure_region_input))
+        azure_form.addWidget(self._azure_region_input)
+        self._api_stack.addWidget(azure_page)
+
+        tencent_page = QWidget()
+        tencent_form = QVBoxLayout(tencent_page)
+        tencent_form.setContentsMargins(0, 0, 0, 0)
+        tencent_form.addWidget(QLabel(t("asr.tencent_secret_id")))
+        self._tencent_id_input = QLineEdit()
+        self._tencent_id_input.setPlaceholderText(t("asr.tencent_secret_id"))
+        self._tencent_id_input.setText(self.pipeline.config.asr.get("tencent_secret_id", ""))
+        self._tencent_id_input.textChanged.connect(lambda: _on_tencent_key_changed(self, self._tencent_id_input, self._tencent_key_input))
+        tencent_form.addWidget(self._tencent_id_input)
+        tencent_form.addWidget(QLabel(t("asr.tencent_secret_key")))
+        self._tencent_key_input = QLineEdit()
+        self._tencent_key_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self._tencent_key_input.setPlaceholderText(t("asr.tencent_secret_key"))
+        self._tencent_key_input.setText(self.pipeline.config.asr.get("tencent_secret_key", ""))
+        self._tencent_key_input.textChanged.connect(lambda: _on_tencent_key_changed(self, self._tencent_id_input, self._tencent_key_input))
+        tencent_form.addWidget(self._tencent_key_input)
+        self._api_stack.addWidget(tencent_page)
+
+        asr_layout.addWidget(self._api_stack)
 
         layout.addWidget(asr_group)
 
@@ -281,6 +325,8 @@ class SettingsDialog(QDialog):
         is_online = self._asr_mode_combo.currentData() == "online"
         if is_online:
             self._asr_engine_combo.addItem(t("asr.engine_baidu"), "baidu")
+            self._asr_engine_combo.addItem(t("asr.engine_azure"), "azure")
+            self._asr_engine_combo.addItem(t("asr.engine_tencent"), "tencent")
         else:
             self._asr_engine_combo.addItem(t("asr.engine_sensevoice"), "sensevoice")
             self._asr_engine_combo.addItem(t("asr.engine_vosk"), "vosk")
@@ -304,9 +350,15 @@ class SettingsDialog(QDialog):
 
     def _refresh_asr_api_fields(self):
         is_online = self._asr_mode_combo.currentData() == "online"
-        for w in [self._baidu_api_label, self._baidu_api_input,
-                  self._baidu_secret_label, self._baidu_secret_input]:
-            w.setVisible(is_online)
+        self._api_stack.setVisible(is_online)
+        if is_online:
+            engine = self._asr_engine_combo.currentData()
+            if engine == "baidu":
+                self._api_stack.setCurrentIndex(0)
+            elif engine == "azure":
+                self._api_stack.setCurrentIndex(1)
+            elif engine == "tencent":
+                self._api_stack.setCurrentIndex(2)
 
     def _on_asr_engine_changed(self):
         if self._asr_mode_combo.currentData() == "offline":
@@ -319,10 +371,14 @@ class SettingsDialog(QDialog):
                     self._asr_engine_combo.setCurrentIndex(idx)
                 self._asr_engine_combo.blockSignals(False)
                 return
+        self._refresh_asr_api_fields()
         self._save_asr_config()
 
     def _check_offline_model(self, engine: str) -> bool:
-        mid = {"sensevoice": "sensevoice", "vosk": "vosk_zh"}.get(engine)
+        mid = {"sensevoice": "sensevoice"}.get(engine)
+        if engine == "vosk":
+            lang = self.pipeline.config.asr.get("vosk_language", "zh-cn")
+            mid = "vosk_en" if lang.startswith("en") else "vosk_zh"
         if mid and md.check_model_status(mid) == md.DownloadState.MISSING:
             name = md.MODELS[mid].name
             msg = QMessageBox(self)
@@ -333,13 +389,19 @@ class SettingsDialog(QDialog):
             msg.addButton(t("close"), QMessageBox.ButtonRole.RejectRole)
             msg.exec()
             if msg.clickedButton() == go_btn:
-                self.tabs.setCurrentIndex(3)
+                self.tabs.setCurrentIndex(2)
             return False
         return True
 
     def _save_asr_config(self):
-        self.pipeline.config.asr["mode"] = self._asr_mode_combo.currentData()
-        self.pipeline.config.asr["engine"] = self._asr_engine_combo.currentData()
+        old_mode = self.pipeline.config.asr.get("mode")
+        old_engine = self.pipeline.config.asr.get("engine")
+        new_mode = self._asr_mode_combo.currentData()
+        new_engine = self._asr_engine_combo.currentData()
+        if old_mode == new_mode and old_engine == new_engine:
+            return
+        self.pipeline.config.asr["mode"] = new_mode
+        self.pipeline.config.asr["engine"] = new_engine
         save_config(self.pipeline.config)
         QMessageBox.information(self, t("prompt.title"), t("asr.restart_hint"))
 
@@ -453,7 +515,13 @@ class SettingsDialog(QDialog):
                 status_text = t("model.status_missing")
             item = QTableWidgetItem(status_text)
             self._model_table.setItem(row, 2, item)
-            self._model_table.item(row, 0).setData(256, mid)
+            name_item = self._model_table.item(row, 0)
+            name_item.setData(256, mid)
+            if status == md.DownloadState.AUTO:
+                grey = QColor("#888")
+                for col in range(3):
+                    self._model_table.item(row, col).setForeground(grey)
+                name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
 
     def _get_selected_model_id(self) -> str | None:
         row = self._model_table.currentRow()
@@ -478,6 +546,10 @@ class SettingsDialog(QDialog):
         mid = self._get_selected_model_id()
         if not mid:
             QMessageBox.warning(self, t("prompt.title"), t("model.select_hint"))
+            return
+        entry = md.MODELS.get(mid)
+        if entry and entry.auto:
+            QMessageBox.information(self, t("prompt.title"), t("model.status_auto"))
             return
         self._start_queue([mid])
 
@@ -717,6 +789,18 @@ def _on_ui_changed(dialog: SettingsDialog, key: str, value: int):
 def _on_baidu_key_changed(dialog: SettingsDialog, api_input, secret_input):
     dialog.pipeline.config.asr["baidu_api_key"] = api_input.text()
     dialog.pipeline.config.asr["baidu_secret_key"] = secret_input.text()
+    save_config(dialog.pipeline.config)
+
+
+def _on_azure_key_changed(dialog: SettingsDialog, sub_input, region_input):
+    dialog.pipeline.config.asr["azure_subscription_key"] = sub_input.text()
+    dialog.pipeline.config.asr["azure_region"] = region_input.text()
+    save_config(dialog.pipeline.config)
+
+
+def _on_tencent_key_changed(dialog: SettingsDialog, id_input, key_input):
+    dialog.pipeline.config.asr["tencent_secret_id"] = id_input.text()
+    dialog.pipeline.config.asr["tencent_secret_key"] = key_input.text()
     save_config(dialog.pipeline.config)
 
 

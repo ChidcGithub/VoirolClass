@@ -52,10 +52,12 @@ class VoicePipeline:
         self._thread: threading.Thread | None = None
         self._state_callbacks: list[Callable[[PipelineState], None]] = []
         self._command_callbacks: list[Callable[[str], None]] = []
+        self._audio_level_callbacks: list[Callable[[float], None]] = []
         self._audio_buffer: list[np.ndarray] = []
         self._vad_buffer: list[float] = []
         self._in_speech = False
         self._ring_buffer: list[np.ndarray] = []
+        self._rms_peak = 0.01
 
         sr = config.general["sample_rate"]
         block = config.general["block_size"]
@@ -111,10 +113,27 @@ class VoicePipeline:
                 secret_key=asr_cfg["baidu_secret_key"],
                 language=asr_cfg.get("sensevoice_language", "zh"),
             )
+        elif engine_type == "azure":
+            from voirol.asr.azure_engine import AzureEngine
+            self.asr_engine: ASREngine = AzureEngine(
+                subscription_key=asr_cfg.get("azure_subscription_key", ""),
+                region=asr_cfg.get("azure_region", ""),
+                language=asr_cfg.get("sensevoice_language", "zh"),
+            )
+        elif engine_type == "tencent":
+            from voirol.asr.tencent_engine import TencentEngine
+            self.asr_engine: ASREngine = TencentEngine(
+                secret_id=asr_cfg.get("tencent_secret_id", ""),
+                secret_key=asr_cfg.get("tencent_secret_key", ""),
+                language=asr_cfg.get("sensevoice_language", "zh"),
+            )
         else:
+            vosk_lang = asr_cfg.get("vosk_language", "zh-cn")
+            vosk_suffix = "vosk_en" if vosk_lang.startswith("en") else "vosk_zh"
+            vosk_path = asr_cfg.get("vosk_model_path", f"models/{vosk_suffix}")
             self.asr_engine: ASREngine = VoskEngine(
-                model_path=asr_cfg["vosk_model_path"],
-                language=asr_cfg["vosk_language"],
+                model_path=vosk_path,
+                language=vosk_lang,
             )
 
         self._setup_commands()
@@ -141,7 +160,6 @@ class VoicePipeline:
         reg.register(Command("white_screen", ["白屏", "白板", "白屏显示", "白板显示"], "白屏", white_screen))
         reg.register(Command("open_whiteboard", ["打开白板", "启动白板", "打开画板", "启动画板"], "打开白板", open_whiteboard))
         reg.register(Command("open_browser", ["打开浏览器", "启动浏览器", "打开网页", "启动网页"], "打开浏览器", open_browser))
-        reg.register(Command("open_file", ["打开文件", "选择文件"], "打开文件", open_file_dialog))
         reg.register(Command("open_file", ["打开文件", "打开", "选择文件"], "打开文件", open_file_dialog))
         from voirol.command.actions import volume_up as _vu, volume_down as _vd, fullscreen as _fs
 
@@ -161,6 +179,9 @@ class VoicePipeline:
     def on_command(self, callback: Callable[[str], None]):
         self._command_callbacks.append(callback)
 
+    def on_audio_level(self, callback: Callable[[float], None]):
+        self._audio_level_callbacks.append(callback)
+
     def _set_state(self, state: PipelineState):
         self.state = state
         for cb in self._state_callbacks:
@@ -168,6 +189,20 @@ class VoicePipeline:
                 cb(state)
             except Exception as e:
                 logger.error(f"State callback error: {e}")
+
+    def _emit_audio_level(self, chunk: np.ndarray):
+        rms = float(np.sqrt(np.mean(np.square(chunk))))
+        self._rms_peak = max(self._rms_peak * 0.999, rms)
+        noise_floor = 0.02
+        if rms < noise_floor:
+            level = 0.0
+        else:
+            level = min(1.0, (rms - noise_floor) / (self._rms_peak - noise_floor + 1e-8))
+        for cb in self._audio_level_callbacks:
+            try:
+                cb(level)
+            except Exception as e:
+                logger.error(f"Audio level callback error: {e}")
 
     def _process_audio(self, audio: np.ndarray):
         if not self._vad_ready:
@@ -184,12 +219,16 @@ class VoicePipeline:
                 self._ring_buffer.clear()
                 self._audio_buffer.append(processed.copy())
                 self._set_state(PipelineState.LISTENING)
+                self._emit_audio_level(processed)
                 if self._verbose:
                     print(t("vad.speech_start", n=len(self._audio_buffer) - 1))
             else:
                 self._audio_buffer.append(processed.copy())
+                self._emit_audio_level(processed)
         else:
             if self._in_speech:
+                if self.ptt_active:
+                    return
                 self._in_speech = False
                 duration = time.time() - self._speech_start_time
                 if self._verbose:

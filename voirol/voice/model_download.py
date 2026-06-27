@@ -71,7 +71,7 @@ MODELS: dict[str, ModelEntry] = {
         ],
         dest_dir="models",
         filename="vosk_zh.zip",
-        expected_files=["models/vosk/am/final.mdl"],
+        expected_files=["models/vosk_zh/am/final.mdl"],
         extract=True,
     ),
     "vosk_en": ModelEntry(
@@ -84,7 +84,7 @@ MODELS: dict[str, ModelEntry] = {
         ],
         dest_dir="models",
         filename="vosk_en.zip",
-        expected_files=["models/vosk/am/final.mdl"],
+        expected_files=["models/vosk_en/am/final.mdl"],
         extract=True,
     ),
     "campplus": ModelEntry(
@@ -217,7 +217,7 @@ def _extract_model(entry: ModelEntry, filepath: str, progress_callback=None):
                     pct = int((i + 1) / total * 90)
                     progress_callback(pct)
 
-        target = os.path.join(base, "vosk")
+        target = os.path.join(base, entry.id)
         extracted = [
             d for d in os.listdir(base)
             if os.path.isdir(os.path.join(base, d))

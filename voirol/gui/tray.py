@@ -1,5 +1,4 @@
-from PyQt6.QtCore import Qt, QRect
-from PyQt6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap
+from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 from voirol.core.pipeline import VoicePipeline
@@ -28,17 +27,7 @@ def create_tray_icon(
 
 
 def _create_icon():
-    pixmap = QPixmap(32, 32)
-    pixmap.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    painter.setBrush(QColor("#4A90D9"))
-    painter.setPen(Qt.PenStyle.NoPen)
-    painter.drawRoundedRect(4, 4, 24, 24, 8, 8)
-    painter.setPen(QColor("white"))
-    painter.drawText(QRect(0, 0, 32, 32), Qt.AlignmentFlag.AlignCenter, "V")
-    painter.end()
-    return QIcon(pixmap)
+    return QIcon("assets/img/icon.png")
 
 
 def _create_menu(app: QApplication, pipeline: VoicePipeline):

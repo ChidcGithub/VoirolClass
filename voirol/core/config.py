@@ -35,7 +35,7 @@ class Config:
     })
     asr: dict = field(default_factory=lambda: {
         "engine": "vosk",
-        "vosk_model_path": "models/vosk",
+        "vosk_model_path": "models/vosk_zh",
         "vosk_language": "zh-cn",
         "sensevoice_model_path": "models/sensevoice",
         "sensevoice_num_threads": 2,
@@ -44,6 +44,10 @@ class Config:
         "baidu_app_id": "",
         "baidu_api_key": "",
         "baidu_secret_key": "",
+        "azure_subscription_key": "",
+        "azure_region": "",
+        "tencent_secret_id": "",
+        "tencent_secret_key": "",
     })
     commands: dict = field(default_factory=lambda: {
         "match_mode": "fuzzy",
