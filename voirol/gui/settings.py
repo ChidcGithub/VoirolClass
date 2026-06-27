@@ -1,5 +1,5 @@
 import numpy as np
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QThread
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -447,32 +447,34 @@ class SettingsDialog(QDialog):
         self._download_label.setText(t("model.downloading", name=md.MODELS[model_id].name))
         self._download_btn.setEnabled(False)
         self._download_all_btn.setEnabled(False)
-        QApplication.processEvents()
 
-        def cb(pct):
-            self._progress_bar.setValue(pct)
-            self._download_label.setText(
-                t("model.downloading", name=md.MODELS[model_id].name) + " " +
-                t("model.progress", pct=pct)
-            )
-            QApplication.processEvents()
+        self._dl_thread = QThread()
+        self._dl_worker = md.DownloadWorker(model_id, mirror)
+        self._dl_worker.moveToThread(self._dl_thread)
+        self._dl_thread.started.connect(self._dl_worker.run)
+        self._dl_worker.progress.connect(self._on_dl_progress)
+        self._dl_worker.finished.connect(self._on_dl_finished)
+        self._dl_worker.finished.connect(self._dl_thread.quit)
+        self._dl_worker.finished.connect(self._dl_worker.deleteLater)
+        self._dl_thread.finished.connect(self._dl_thread.deleteLater)
+        self._dl_thread.start()
 
-        def done():
-            self._progress_bar.setVisible(False)
-            self._download_btn.setEnabled(True)
-            self._download_all_btn.setEnabled(True)
-            ok = md.check_model_status(model_id) == md.DownloadState.DOWNLOADED
-            self._download_label.setText(
-                t("model.done") if ok else t("model.failed")
-            )
-            self._refresh_model_table()
+    def _on_dl_progress(self, model_id: str, pct: int):
+        self._progress_bar.setValue(pct)
+        self._download_label.setText(
+            t("model.downloading", name=md.MODELS[model_id].name) + " " +
+            t("model.progress", pct=pct)
+        )
 
-        import threading
-        def task():
-            md.download_model(model_id, mirror, progress_callback=cb)
-            done()
-
-        threading.Thread(target=task, daemon=True).start()
+    def _on_dl_finished(self, model_id: str, success: bool):
+        self._progress_bar.setVisible(False)
+        self._download_btn.setEnabled(True)
+        self._download_all_btn.setEnabled(True)
+        ok = success and md.check_model_status(model_id) == md.DownloadState.DOWNLOADED
+        self._download_label.setText(
+            t("model.done") if ok else t("model.failed")
+        )
+        self._refresh_model_table()
 
     def _add_general_tab(self):
         tab = QWidget()

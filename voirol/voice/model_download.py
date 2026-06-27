@@ -1,11 +1,11 @@
 import os
 import shutil
 import tarfile
-import threading
 import zipfile
 from dataclasses import dataclass, field
 
 import requests
+from PyQt6.QtCore import QObject, pyqtSignal
 
 from voirol.utils.download import download_file
 from voirol.utils.logger import get_logger
@@ -202,3 +202,20 @@ def _extract_model(entry: ModelEntry, filepath: str):
             logger.info(f"Vosk extracted to {target}")
 
     os.remove(filepath)
+
+
+class DownloadWorker(QObject):
+    progress = pyqtSignal(str, int)
+    finished = pyqtSignal(str, bool)
+
+    def __init__(self, model_id: str, mirror_url: str = ""):
+        super().__init__()
+        self.model_id = model_id
+        self.mirror_url = mirror_url
+
+    def run(self):
+        ok = download_model(
+            self.model_id, self.mirror_url,
+            progress_callback=lambda p: self.progress.emit(self.model_id, p),
+        )
+        self.finished.emit(self.model_id, ok)
