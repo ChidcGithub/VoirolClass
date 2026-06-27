@@ -1,5 +1,12 @@
 # VoirolClass
 
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Platform: Windows](https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey)](https://www.microsoft.com/windows)
+[![Version](https://img.shields.io/badge/version-0.0.1--beta-orange)]()
+
+> [中文文档](README_zh.md)
+
 A voice-controlled classroom assistant for teachers. Speak naturally to control slides, screens, volume, and applications — hands-free.
 
 > **MVP** — built for classroom use on Windows (4 GB RAM, low-end CPU). Supports offline ASR via SenseVoice or Vosk, and speaker verification to ensure only the enrolled teacher's voice triggers commands.
