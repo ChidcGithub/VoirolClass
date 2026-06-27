@@ -1,0 +1,54 @@
+[general]
+language = "en"
+sample_rate = 16000
+block_size = 1024
+input_device = -1
+
+[vad]
+type = "silero"
+threshold = 0.25
+min_speech_duration = 0.5
+silence_duration = 1.0
+
+[voice]
+model_path = "campplus-zh-en"
+verification_threshold = 0.45
+enrollment_utterances = 5
+enrollment_dir = "data/enrollments"
+
+[asr]
+engine = "sensevoice"
+vosk_model_path = "models/vosk"
+vosk_language = "zh-cn"
+sensevoice_model_path = "models/sensevoice"
+sensevoice_num_threads = 2
+sensevoice_language = "zh"
+sensevoice_use_itn = false
+baidu_app_id = ""
+baidu_api_key = ""
+baidu_secret_key = ""
+
+[commands]
+match_mode = "fuzzy"
+fuzzy_threshold = 0.8
+
+[hotkey]
+push_to_talk = "ctrl+alt+v"
+toggle_mute = "ctrl+alt+m"
+open_settings = "ctrl+alt+s"
+
+[ui]
+font_size = 10
+border_radius = 5
+
+[teacher]
+current_teacher = "CCCC"
+
+[debug]
+verbose = true
+print_vad = false
+log_asr_unverified = true
+
+[logging]
+level = "INFO"
+file = ""

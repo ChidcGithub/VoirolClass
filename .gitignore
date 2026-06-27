@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+.venv/
+venv/
+*.pkl
+*.tar.bz2
+data/enrollments/*.wav
+models/sensevoice/*.onnx
+models/sensevoice/*.tar.bz2
+models/vosk/am/final.mdl
+.vscode/
+.idea/
