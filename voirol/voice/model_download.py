@@ -136,6 +136,10 @@ def download_model(model_id: str, mirror_url: str = "", progress_callback=None) 
         os.makedirs(dest, exist_ok=True)
         filepath = os.path.join(dest, entry.filename)
 
+        archive_type = None
+        if entry.extract:
+            archive_type = "tar" if entry.id == "sensevoice" else "zip"
+
         download_file(
             url=dl_url,
             dest_path=dest,
@@ -145,6 +149,7 @@ def download_model(model_id: str, mirror_url: str = "", progress_callback=None) 
             timeout=120,
             retries=3,
             progress_callback=progress_callback,
+            archive_type=archive_type,
         )
 
         if entry.extract:
@@ -164,6 +169,13 @@ def download_model(model_id: str, mirror_url: str = "", progress_callback=None) 
 def _extract_model(entry: ModelEntry, filepath: str, progress_callback=None):
     base = os.path.dirname(filepath) or "."
     logger.info(f"Extracting {entry.filename}...")
+
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(f"Archive not found: {filepath}")
+    if entry.id == "sensevoice" and not tarfile.is_tarfile(filepath):
+        raise ValueError(f"Not a valid tar file: {filepath}")
+    if entry.id.startswith("vosk") and not zipfile.is_zipfile(filepath):
+        raise ValueError(f"Not a valid zip file: {filepath}")
 
     if entry.id == "sensevoice":
         extract_dir = os.path.join(base, "_extracted_sv")

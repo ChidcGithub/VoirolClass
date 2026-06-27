@@ -1,5 +1,7 @@
 import os
+import tarfile
 import time
+import zipfile
 from collections.abc import Callable
 
 import requests
@@ -32,6 +34,7 @@ def download_file(
     timeout: int = DOWNLOAD_TIMEOUT,
     retries: int = MAX_RETRIES,
     progress_callback: Callable[[int], None] | None = None,
+    archive_type: str | None = None,
 ) -> str:
     os.makedirs(dest_path, exist_ok=True)
     full_path = os.path.join(dest_path, filename)
@@ -81,11 +84,19 @@ def download_file(
 
                 size_mb = os.path.getsize(full_path) / 1024 / 1024
                 logger.info(f"Downloaded {label}: {size_mb:.1f} MB")
+
+                if archive_type == "zip" and not zipfile.is_zipfile(full_path):
+                    os.remove(full_path)
+                    raise ValueError("Not a valid zip file")
+                if archive_type == "tar" and not tarfile.is_tarfile(full_path):
+                    os.remove(full_path)
+                    raise ValueError("Not a valid tar file")
+
                 if progress_callback:
                     progress_callback(100)
                 return full_path
 
-            except requests.RequestException as e:
+            except (requests.RequestException, ValueError) as e:
                 if attempt < retries - 1:
                     wait = RETRY_DELAY * (attempt + 1)
                     logger.warning(
