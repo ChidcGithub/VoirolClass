@@ -66,8 +66,8 @@ MODELS: dict[str, ModelEntry] = {
         name="Vosk (Chinese)",
         size="42 MB",
         urls=[
-            "https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip",
             "https://mirrors.ustc.edu.cn/vosk-models/vosk-model-small-cn-0.22.zip",
+            "https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip",
         ],
         dest_dir="models",
         filename="vosk_zh.zip",
@@ -79,8 +79,8 @@ MODELS: dict[str, ModelEntry] = {
         name="Vosk (English)",
         size="42 MB",
         urls=[
-            "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip",
             "https://mirrors.ustc.edu.cn/vosk-models/vosk-model-small-en-us-0.15.zip",
+            "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip",
         ],
         dest_dir="models",
         filename="vosk_en.zip",
@@ -117,6 +117,8 @@ def test_mirror(url: str) -> tuple[bool, str]:
 
 def _apply_mirror(original_url: str, mirror_url: str) -> str:
     if not mirror_url:
+        return original_url
+    if not any(domain in original_url for domain in ["github.com", "raw.githubusercontent.com"]):
         return original_url
     return mirror_url.rstrip("/") + "/" + original_url.lstrip("/")
 
