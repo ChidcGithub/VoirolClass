@@ -176,6 +176,10 @@ def _open_in_browser(url: str, browser: str):
 
 
 def open_url(param: str = ""):
+    stripped = param.strip()
+    if stripped and stripped in APP_MAP:
+        open_file_action(param)
+        return
     if not param:
         param = "about:blank"
     browser, rest = _detect_browser(param)
