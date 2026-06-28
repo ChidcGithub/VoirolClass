@@ -86,7 +86,7 @@ class Config:
     })
     browser: dict = field(default_factory=lambda: {
         "default": "edge",
-        "search_engine": "https://www.baidu.com/s?wd=%s",
+        "search_engine": "https://www.baidu.com/s?wd={}",
     })
     logging: dict = field(default_factory=lambda: {
         "level": "INFO",

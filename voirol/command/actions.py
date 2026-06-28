@@ -80,7 +80,7 @@ def set_search_engine(url_template: str):
 def _detect_browser(text: str) -> tuple[str, str]:
     text_lower = text.lower()
     m = re.search(
-        r'(?:用|使用|通过)\s*(\S+?)\s*(?:打开|访问|搜索|前往|进入|启动)',
+        r'(?:用|使用|通过)\s*(.+?)\s*(?:打开|访问|搜索|前往|进入|启动)',
         text_lower,
     )
     if m:
@@ -113,6 +113,7 @@ def _resolve_url(text: str) -> str:
         return "https://" + text
 
     engine_url = _selected_search_engine or DEFAULT_SEARCH_ENGINES.get("zh")
+    engine_url = engine_url.replace("%s", "{}")
     import urllib.parse
     return engine_url.format(urllib.parse.quote(text))
 
