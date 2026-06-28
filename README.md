@@ -10,6 +10,9 @@
 
 > [中文文档](README_zh.md)
 
+> [!TIP]
+> To be honest, UI design isn't my strong suit. If you're skilled in UI and interested in collaborating to improve this project, feel free to reach out!
+
 A voice-controlled classroom assistant for teachers. Speak naturally to control slides, screens, volume, and applications — hands-free.
 
 > **MVP** — built for classroom use on Windows (4 GB RAM, low-end CPU). Supports offline ASR via SenseVoice or Vosk, and speaker verification to ensure only the enrolled teacher's voice triggers commands.

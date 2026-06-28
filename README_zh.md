@@ -10,6 +10,9 @@
 
 > [English Documentation](README.md)
 
+> [!TIP]
+> 如果你擅长 UI 设计并且有兴趣一起改进这个项目，非常欢迎联系我！
+
 VoirolClass 是一款面向教师的语音控制教室辅助工具。使用自然语音即可控制幻灯片、屏幕、音量及应用程序，实现免提操作。
 
 > **MVP** — 专为 Windows 教室环境设计（4 GB 内存，低端 CPU）。支持 SenseVoice / Vosk 离线 ASR，以及声纹验证确保只有已注册的老师才能触发指令。
