@@ -13,19 +13,40 @@
 > [!TIP]
 > To be honest, UI design isn't my strong suit. If you're skilled in UI and interested in collaborating to improve this project, feel free to reach out!
 
+---
+
 A voice-controlled classroom assistant for teachers. Speak naturally to control slides, screens, volume, and applications — hands-free.
+
+No keyboard or mouse required. Just say "next page", "black screen", or "open browser" to control classroom devices. Designed for Windows classroom environments, runs fully offline, and works smoothly on 4 GB RAM machines.
+
+---
 
 ## Features
 
-- **Voice Activity Detection** — Silero VAD ONNX with configurable sensitivity, speech/silence duration, and a ring buffer that preserves ~1 s of audio history to avoid cutting off sentence starts
-- **Dual ASR Engines** — SenseVoiceSmall (pure ONNX Runtime, primary) or Vosk-Kaldi (fallback), both running fully offline
-- **Speaker Verification** — CAM++ embedding via `speakeronnx` (192-dim L2-normalized vectors). Each teacher enrolls by reading 3–5 sentences; only their voice passes the similarity threshold
-- **Command Matching** — Three strategies: exact, keyword (substring), or fuzzy (SequenceMatcher ratio). Falls back through the chain automatically, then to **AI semantic matching** (DeepSeek/OpenAI) when no keyword matches
-- **AI Semantic Matching** — Optional DeepSeek/OpenAI integration. When keyword and fuzzy matching fail, sends the transcribed text to a configurable LLM to infer the intended command from natural language
-- **Push-to-Talk** — Global hotkey (`Ctrl+Alt+V`) for hands-free toggle; also supports pure voice wake via VAD
-- **Multi-Teacher** — Register, select, and delete teacher profiles at runtime through the settings dialog
-- **i18n** — English and Chinese UI; tray, settings, pipeline logs all switch via config
-- **Minimal GUI** — System tray icon with context menu (Status, Settings, Mute, Quit); settings window with Voice Recognition / General / About tabs
+| Feature | Description |
+|---------|-------------|
+| **Voice Activity Detection** | Silero VAD ONNX with configurable sensitivity, speech/silence duration, and a ring buffer that preserves ~1 s of audio history to avoid cutting off sentence starts |
+| **Dual ASR Engines** | SenseVoiceSmall (pure ONNX Runtime, primary) or Vosk-Kaldi (fallback), both running fully offline |
+| **Speaker Verification** | CAM++ embedding via `speakeronnx` (192-dim L2-normalized vectors). Each teacher enrolls by reading 3-5 sentences; only their voice passes the similarity threshold |
+| **Command Matching** | Three-tier strategy: exact, keyword (substring), or fuzzy (SequenceMatcher ratio). Falls back through the chain automatically, then to AI semantic matching (DeepSeek/OpenAI) when no keyword matches |
+| **AI Semantic Matching** | Optional DeepSeek/OpenAI integration. Sends transcribed text to a configurable LLM to infer the intended command from natural language |
+| **Push-to-Talk & Voice Wake** | Global hotkey <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>V</kbd> for push-to-talk; also supports pure voice wake via VAD |
+| **Multi-Teacher Profiles** | Register, select, and delete teacher profiles at runtime through the settings dialog |
+| **Internationalization** | English and Chinese UI; tray, settings, and pipeline logs all switch via configuration |
+| **Minimal GUI** | System tray icon with context menu (Status, Settings, Mute, Quit); settings window with Voice Recognition / General / About tabs |
+
+---
+
+## Quick Start
+
+```bash
+pip install -r requirements.txt
+python main.py
+```
+
+Right-click the tray icon → **Settings...** → register a teacher. Start speaking: "Next Page", "Mute", "Open Baidu".
+
+---
 
 ## Architecture
 
@@ -34,7 +55,7 @@ Microphone ─► AudioCapture ─► SileroVAD ─► SpeakerVerifier ─► AS
                                                                          │
                                                                (SenseVoice / Vosk)
                                                                          │
-                                                              (fallback) │
+                                                              (fallback)  │
                                                                          ▼
                                                                    AIMatcher (AI)
                                                                   DeepSeek/OpenAI
@@ -50,18 +71,22 @@ Microphone ─► AudioCapture ─► SileroVAD ─► SpeakerVerifier ─► AS
 
 All components are decoupled and wired together by `VoicePipeline` in `voirol/core/pipeline.py`.
 
+---
+
 ## Supported Commands
 
 | Category | Command | Action |
 |---|---|---|
-| Slide control | `next_page`, `prev_page` | → / ← arrow key |
+| Slide control | `next_page`, `prev_page` | <kbd>→</kbd> / <kbd>←</kbd> |
 | Display | `black_screen`, `white_screen` | Monitor off / fullscreen white window |
-| Application | `open_whiteboard`, `open_browser`, `open_file` | mspaint, browser, file dialog |
+| Application | `open_whiteboard`, `open_browser`, `open_file` | mspaint, browser launch, file picker |
 | Audio | `volume_up`, `volume_down`, `mute` | System volume ±5, mute toggle |
-| View | `fullscreen`, `esc` | F11, Escape |
-| Input | `enter`, `space` | Enter, Space |
+| View | `fullscreen`, `esc` | <kbd>F11</kbd>, <kbd>Esc</kbd> |
+| Input | `enter`, `space` | <kbd>Enter</kbd>, <kbd>Space</kbd> |
 
 Chinese keyword lists accompany each command (e.g. `下一页` / `下一张` for `next_page`).
+
+---
 
 ## Getting Started
 
@@ -71,7 +96,8 @@ Chinese keyword lists accompany each command (e.g. `下一页` / `下一张` for
 - **Windows 10/11**
 - 4 GB RAM minimum
 
-### Install
+<details>
+<summary><b>Install</b></summary>
 
 ```bash
 git clone <repo-url>
@@ -81,7 +107,10 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-### Configure
+</details>
+
+<details>
+<summary><b>Configure</b></summary>
 
 Edit `config.toml` to set language, microphone device, and ASR engine:
 
@@ -95,7 +124,10 @@ engine = "sensevoice"   # or "vosk"
 
 The first run will automatically download the Silero VAD model (`models/silero_vad.onnx`) via mirror links.
 
-### Run
+</details>
+
+<details>
+<summary><b>Run</b></summary>
 
 ```bash
 .venv\Scripts\python main.py
@@ -103,7 +135,10 @@ The first run will automatically download the Silero VAD model (`models/silero_v
 
 A tray icon appears in the taskbar. Right-click to open Settings, register a teacher, and start using voice commands.
 
-### Enrollment
+</details>
+
+<details>
+<summary><b>Enrollment</b></summary>
 
 1. Right-click tray icon → **Settings...**
 2. Go to **Voice Recognition** tab → **Register New Teacher**
@@ -111,6 +146,10 @@ A tray icon appears in the taskbar. Right-click to open Settings, register a tea
 4. The system extracts your voiceprint and saves it
 
 After enrollment, select your profile and start speaking. Only your voice will trigger commands.
+
+</details>
+
+---
 
 ## Configuration
 
@@ -124,7 +163,7 @@ Key settings in `config.toml`:
 | | `silence_duration` | `1.0` | Seconds of silence to end utterance |
 | `[voice]` | `verification_threshold` | `0.45` | Similarity threshold for speaker match |
 | | `model_path` | `campplus-zh-en` | speakeronnx model name |
-| `[asr]` | `engine` | `sensevoice` | `sensevoice`, `vosk`, or `baidu` (stub) |
+| `[asr]` | `engine` | `sensevoice` | `sensevoice`, `vosk`, or `baidu` |
 | `[commands]` | `match_mode` | `fuzzy` | `exact` / `keyword` / `fuzzy` |
 | | `fuzzy_threshold` | `0.8` | SequenceMatcher ratio |
 | `[hotkey]` | `push_to_talk` | `ctrl+alt+v` | PTT hotkey |
@@ -134,6 +173,8 @@ Key settings in `config.toml`:
 | | `api_url` | `https://api.deepseek.com/v1` | OpenAI-compatible API endpoint |
 | | `model` | `deepseek-chat` | Model name |
 | | `temperature` | `0.1` | LLM temperature (0.0–2.0) |
+
+---
 
 ## Project Structure
 
@@ -149,6 +190,8 @@ voirol/
 └── voice/                # Speaker verification & enrollment
 ```
 
+---
+
 ## Tech Stack
 
 | Component | Library | Notes |
@@ -161,7 +204,18 @@ voirol/
 | Command execution | pyautogui | Keyboard/mouse simulation |
 | AI matching | DeepSeek / OpenAI API | Optional semantic fallback via LLM |
 | Hotkeys | keyboard | Global hotkey registration |
-| i18n | Custom dict | English & Chinese built-in |
+| Internationalization | Custom dictionary | English & Chinese built-in |
+
+---
+
+## Contributing
+
+Contributions are welcome, especially UI/UX design collaborators.
+- Report bugs via [GitHub Issues](https://github.com/ChidcGithub/VoirolClass/issues)
+- Submit pull requests for improvements
+- Reach out for UI collaboration (see the tip at the top of this page)
+
+---
 
 ## License
 
