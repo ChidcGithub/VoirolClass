@@ -6,6 +6,7 @@ import time
 
 import pyautogui
 
+from voirol.utils.ai_parse import parse_ai_json_response
 from voirol.utils.logger import get_logger
 
 logger = get_logger("command.actions")
@@ -66,6 +67,7 @@ _selected_browser = "edge"
 _selected_search_engine = None
 _selected_file_search_dirs = None
 _file_navigator = None
+_ai_router_engine = None
 
 APP_MAP = {
     "记事本": "notepad", "notepad": "notepad",
@@ -96,6 +98,11 @@ def set_file_search_dirs(dirs: list[str]):
 def set_file_navigator(nav):
     global _file_navigator
     _file_navigator = nav
+
+
+def set_ai_router_engine(engine):
+    global _ai_router_engine
+    _ai_router_engine = engine
 
 
 def set_default_browser(browser: str):
@@ -193,6 +200,74 @@ def open_url(param: str = ""):
     _open_in_browser(url, browser)
 
 
+_ROUTER_PROMPT = (
+    '你是一个意图分类器。用户说了"打开{{param}}"，判断其意图。\n'
+    '只返回一行JSON：\n'
+    '- 网址/网页 → {"intent": "url"}\n'
+    '- 应用/程序 → {"intent": "app"}\n'
+    '- 文件/路径 → {"intent": "file"}\n'
+    '- 搜索 → {"intent": "search"}\n'
+)
+
+
+def open_router(param: str = ""):
+    if not param:
+        logger.warning("Action: open_router -> no param, use '打开 + 内容'")
+        return
+
+    param = param.strip()
+
+    if param in APP_MAP:
+        open_file_action(param)
+        return
+
+    if param in SITE_MAP:
+        open_url(param)
+        return
+
+    if param.startswith(("http://", "https://", "ftp://", "about:")):
+        open_url(param)
+        return
+
+    if "." in param and " " not in param.strip("."):
+        open_url(param)
+        return
+
+    engine = _ai_router_engine
+    if engine is not None:
+        try:
+            prompt = _ROUTER_PROMPT.replace("{{param}}", param)
+            messages = [{"role": "user", "content": prompt}]
+            response = engine.chat(messages, temperature=0.1, timeout=10)
+            if not response:
+                logger.warning("AI router returned empty response")
+                return
+            result = parse_ai_json_response(response)
+            if result is None:
+                logger.warning("AI router returned unparseable response")
+                return
+            intent = result.get("intent", "")
+
+            if intent == "url":
+                open_url(param)
+                return
+            elif intent == "search":
+                open_url(param)
+                return
+            elif intent == "app":
+                open_file_action(param)
+                return
+            elif intent == "file":
+                open_file_action(param)
+                return
+            else:
+                logger.warning(f"Unknown intent from AI: {intent}")
+        except Exception as e:
+            logger.warning(f"AI router failed: {e}, giving up")
+
+    logger.warning(f"Action: open_router -> unable to route '{param}'")
+
+
 def next_page():
     pyautogui.press("right")
     logger.info("Action: next_page")
@@ -237,7 +312,7 @@ def open_whiteboard():
 
 def open_file_action(param: str = ""):
     if not param:
-        _open_file_dialog_native()
+        logger.warning("Action: open_file -> no param, use '打开 + 文件名'")
         return
 
     param = param.strip()
@@ -284,29 +359,11 @@ def open_file_action(param: str = ""):
             try:
                 os.startfile(nav_path)
                 logger.info(f"Action: open_file (ai) -> {nav_path}")
+                nav.clear_context()
                 return
             except Exception as e:
                 logger.warning(f"Failed to open ai-found '{nav_path}': {e}")
-    _open_file_dialog_native()
-
-
-def _open_file_dialog_native():
-    try:
-        import tkinter as tk
-        from tkinter import filedialog
-        root = tk.Tk()
-        root.withdraw()
-        root.attributes("-topmost", True)
-        path = filedialog.askopenfilename(parent=root)
-        root.destroy()
-        if path:
-            os.startfile(path)
-            logger.info(f"Action: open_file_dialog -> {path}")
-        else:
-            logger.info("Action: open_file_dialog -> cancelled")
-    except Exception as e:
-        logger.warning(f"Native file dialog failed: {e}, falling back to Ctrl+O")
-        pyautogui.hotkey("ctrl", "o")
+    logger.warning(f"Action: open_file -> '{param}' not found (ai searched)")
 
 
 def open_file_dialog():

@@ -23,7 +23,7 @@ class ListeningIndicator(QWidget):
     IDLE_W = 60
     IDLE_H = 4
     LISTEN_W = 120
-    LISTEN_H = 52
+    LISTEN_H = 82
 
     def __init__(self):
         super().__init__()
@@ -138,11 +138,10 @@ class ListeningIndicator(QWidget):
             self._path_label.hide()
             return
         self._path_label.setText(text)
-        geo = self.geometry()
-        label_y = geo.y() + geo.height() + 6
+        label_y = self.LISTEN_H + 6
         self._path_label.setGeometry(
-            geo.x(), label_y,
-            geo.width(), self._path_label.sizeHint().height(),
+            0, label_y,
+            self.LISTEN_W, self._path_label.sizeHint().height(),
         )
         self._path_label.show()
 

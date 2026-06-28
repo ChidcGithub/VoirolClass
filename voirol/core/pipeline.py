@@ -20,6 +20,7 @@ from voirol.command.actions import (
     mute,
     next_page,
     open_file_action,
+    open_router,
     open_url,
     open_whiteboard,
     prev_page,
@@ -165,13 +166,14 @@ class VoicePipeline:
             logger.info("AI command matcher enabled")
 
             from voirol.command.file_navigator import FileNavigator
-            from voirol.command.actions import set_file_navigator
+            from voirol.command.actions import set_file_navigator, set_ai_router_engine
             self._file_navigator = FileNavigator(
                 engine=ai_engine,
                 max_depth=config.file.get("ai_search_depth", 5),
-                path_callback=self._on_navigator_path,
+                status_callback=self._on_navigator_status,
             )
             set_file_navigator(self._file_navigator)
+            set_ai_router_engine(ai_engine)
             logger.info("File navigator enabled")
         else:
             logger.info("AI command matcher disabled")
@@ -203,8 +205,9 @@ class VoicePipeline:
         reg.register(Command("black_screen", ["黑屏", "关屏幕", "关闭显示", "黑屏显示"], "黑屏", black_screen))
         reg.register(Command("white_screen", ["白屏", "白板", "白屏显示", "白板显示"], "白屏", white_screen))
         reg.register(Command("open_whiteboard", ["打开白板", "启动白板", "打开画板", "启动画板"], "打开白板", open_whiteboard))
-        reg.register(Command("open_browser", ["打开浏览器", "启动浏览器", "打开网页", "启动网页", "打开网址", "访问", "打开", "进入"], "打开浏览器", open_url, capture_param=True))
+        reg.register(Command("open_browser", ["打开浏览器", "启动浏览器", "打开网页", "启动网页", "打开网址", "访问", "进入"], "打开浏览器", open_url, capture_param=True))
         reg.register(Command("open_file", ["打开文件", "选择文件"], "打开文件", open_file_action, capture_param=True))
+        reg.register(Command("open", ["打开"], "打开", open_router, capture_param=True))
         from voirol.command.actions import volume_up as _vu, volume_down as _vd, fullscreen as _fs
 
         reg.register(Command("volume_up", ["调高音量", "声音大点", "大声点", "加大音量", "增大音量", "音量加"], "调高音量", _vu))
@@ -217,10 +220,10 @@ class VoicePipeline:
 
         self._cmd_registry = reg
 
-    def _on_navigator_path(self, path: str):
+    def _on_navigator_status(self, text: str):
         for cb in self._command_callbacks:
             try:
-                cb(f"nav:{path}")
+                cb(f"nav:{text}")
             except Exception:
                 pass
 
@@ -362,6 +365,11 @@ class VoicePipeline:
         if cmd:
             if self._verbose:
                 print(t("cmd.matched", cmd_id=cmd.id, description=cmd.description))
+            desc = cmd.description
+            if cmd.capture_param and param:
+                desc = f"{desc}: {param}"
+            for cb in self._command_callbacks:
+                cb(f"cmd:{desc}")
             try:
                 if cmd.capture_param:
                     cmd.action(param or "")

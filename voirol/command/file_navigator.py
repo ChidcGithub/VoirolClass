@@ -1,15 +1,24 @@
-import json
 import os
 import re
 from collections import deque
 from typing import Callable
 
 from voirol.ai.openai_engine import OpenAIEngine
+from voirol.utils.ai_parse import parse_ai_json_response
 from voirol.utils.logger import get_logger
 
 logger = get_logger("command.file_navigator")
 
 DRIVE_PATTERN = re.compile(r"^([a-zA-Z])[盘pP]", re.ASCII)
+
+_SYSTEM_PROMPT = (
+    "你是文件导航助手。你的任务是帮用户在 Windows 电脑上找到文件或浏览目录。\n"
+    "根据当前目录的内容，选择最合适的下一步操作，只返回 JSON。"
+)
+
+_MAX_CONTEXT_ROUNDS = 3
+_MAX_VISIBLE_ENTRIES = 50
+_MAX_SUBDIR_ENTRIES = 5
 
 
 class FileNavigator:
@@ -17,18 +26,24 @@ class FileNavigator:
         self,
         engine: OpenAIEngine,
         max_depth: int = 5,
-        path_callback: Callable[[str], None] | None = None,
+        status_callback: Callable[[str], None] | None = None,
     ):
         self._engine = engine
         self._max_depth = max(3, min(10, max_depth))
-        self._path_callback = path_callback
-        self._history: list[str] = []
+        self._status_callback = status_callback
+        self._context: list[dict] = []
+        self._dir_cache: dict[str, list | None] = {}
+
+    def clear_context(self):
+        self._context.clear()
+        self._dir_cache.clear()
 
     def find_file(self, query: str, search_dirs: list[str] | None = None) -> str | None:
         if not query:
             return None
 
-        self._history.clear()
+        self._dir_cache.clear()
+
         search_root, filename = self._parse_voice_path(query)
 
         if search_root:
@@ -48,37 +63,37 @@ class FileNavigator:
 
     def _parse_voice_path(self, text: str) -> tuple[str | None, str]:
         text = text.strip()
+        if not text:
+            return None, ""
+
         if os.path.isabs(text):
             return None, text
 
-        path_parts: list[str] = []
-        tokens = text.split()
-        filename = text
+        m = DRIVE_PATTERN.match(text)
+        if not m:
+            tokens = text.split()
+            if len(tokens) >= 2:
+                *dirs, filename = tokens
+                search_root = os.path.join(*dirs)
+                if not os.path.isabs(search_root):
+                    search_root = os.path.abspath(search_root)
+                return search_root, filename
+            return None, text
 
-        drive = ""
-        if tokens:
-            m = DRIVE_PATTERN.match(tokens[0])
-            if m:
-                drive = f"{m.group(1).upper()}:\\"
-                tokens = tokens[1:]
+        drive = f"{m.group(1).upper()}:\\"
+        rest = text[m.end():].strip()
 
-        if drive and tokens:
-            *dirs, filename = tokens if len(tokens) > 1 else ([], tokens[0])
-            path_parts = [drive] + dirs
-            search_root = os.path.join(*path_parts) if path_parts else drive
-        elif drive:
-            search_root = drive
-            filename = ""
-        elif len(tokens) >= 2:
-            *dirs, filename = tokens
-            search_root = os.path.join(*dirs) if dirs else None
-        else:
-            search_root = None
+        if not rest:
+            return drive, ""
 
-        if search_root and not os.path.isabs(search_root):
-            search_root = os.path.abspath(search_root)
+        parts = rest.replace("/", "\\").split("\\")
+        all_parts = [p for t in parts for p in t.split() if p]
 
-        return search_root, filename
+        if len(all_parts) >= 2:
+            *dirs, filename = all_parts
+            return os.path.join(drive, *dirs), filename
+
+        return drive, all_parts[0]
 
     def _bfs(self, start_dir: str, filename: str) -> str | None:
         queue = deque([(start_dir, 0)])
@@ -91,8 +106,8 @@ class FileNavigator:
                 continue
             visited.add(current_dir)
 
-            if self._path_callback:
-                self._path_callback(current_dir)
+            if self._status_callback:
+                self._status_callback(f"🔍 {current_dir}")
 
             if depth >= self._max_depth:
                 continue
@@ -101,12 +116,10 @@ class FileNavigator:
             if entries is None:
                 continue
 
-            direct_match = self._find_direct_match(entries, filename, current_dir)
-            if direct_match:
-                return direct_match
-
             decision = self._ask_ai(current_dir, entries, filename)
             if decision is None:
+                if self._status_callback:
+                    self._status_callback("🤔 解析失败，继续搜索...")
                 continue
 
             action = decision.get("action")
@@ -115,81 +128,96 @@ class FileNavigator:
             if action == "open_file":
                 full_path = os.path.join(current_dir, target) if not os.path.isabs(target) else target
                 if os.path.isfile(full_path):
+                    if self._status_callback:
+                        self._status_callback(f"✅ {target}")
                     return full_path
+                if self._status_callback:
+                    self._status_callback(f"⚠️ {target} 未找到")
                 logger.warning(f"AI wanted to open '{target}' but file not found")
                 continue
 
             elif action == "enter_dir":
                 subdir = os.path.join(current_dir, target) if not os.path.isabs(target) else target
                 if os.path.isdir(subdir):
-                    self._history.append(f"Entered {subdir}")
+                    if self._status_callback:
+                        self._status_callback(f"📁 进入 {target}")
                     queue.appendleft((subdir, depth + 1))
                 else:
+                    if self._status_callback:
+                        self._status_callback(f"⚠️ 目录 {target} 不存在")
                     logger.warning(f"AI wanted to enter '{target}' but dir not found")
-                    if depth < self._max_depth:
-                        for entry in entries:
-                            entry_path = os.path.join(current_dir, entry.name)
-                            if os.path.isdir(entry_path) and entry_path not in visited:
-                                queue.append((entry_path, depth + 1))
+                    for entry in entries:
+                        if entry.is_dir():
+                            ep = os.path.join(current_dir, entry.name)
+                            if ep not in visited:
+                                queue.append((ep, depth + 1))
 
             elif action == "up":
                 parent = os.path.dirname(current_dir)
                 if parent and parent != current_dir and os.path.isdir(parent):
-                    self._history.append(f"Went up from {current_dir}")
-                    queue.append((parent, depth - 1) if depth > 0 else (parent, 0))
+                    if self._status_callback:
+                        self._status_callback("↩️ 返回上层")
+                    queue.append((parent, max(0, depth - 1)))
 
             elif action == "retry":
-                self._history.append(f"Retry with '{target}'")
+                if self._status_callback:
+                    self._status_callback(f"🔁 重试: {target}")
+                filename = target or filename
                 for entry in entries:
-                    entry_path = os.path.join(current_dir, entry.name)
-                    if os.path.isdir(entry_path) and entry_path not in visited:
-                        match = self._find_direct_match(entries, target, current_dir)
-                        if match:
-                            return match
-                        queue.append((entry_path, depth + 1))
+                    if entry.is_dir():
+                        ep = os.path.join(current_dir, entry.name)
+                        if ep not in visited:
+                            queue.append((ep, depth + 1))
 
             elif action == "giveup":
+                if self._status_callback:
+                    self._status_callback("❌ 放弃搜索")
                 logger.info(f"AI gave up searching for '{filename}' in {current_dir}")
                 return None
 
         return None
 
     def _list_dir(self, path: str):
+        cached = self._dir_cache.get(path)
+        if cached is not None:
+            return cached
+
         try:
             entries = sorted(os.scandir(path), key=lambda e: (not e.is_dir(), e.name.lower()))
+            self._dir_cache[path] = entries
             return entries
         except PermissionError:
+            self._dir_cache[path] = None
             return None
         except OSError as e:
             logger.debug(f"Cannot list {path}: {e}")
+            self._dir_cache[path] = None
             return None
-
-    def _find_direct_match(self, entries, filename: str, current_dir: str) -> str | None:
-        lower_filename = filename.lower().strip()
-        if not lower_filename:
-            return None
-        for entry in entries:
-            if entry.is_file():
-                entry_lower = entry.name.lower()
-                if entry_lower == lower_filename or lower_filename in entry_lower:
-                    return entry.path
-        return None
 
     def _build_prompt(self, path: str, entries, filename: str) -> str:
-        lines = [f"当前目录: {path}", "", "内容:"]
+        lines = [f"当前目录: {path}", "", "完整内容:"]
+        shown = 0
         for e in entries:
+            if shown >= _MAX_VISIBLE_ENTRIES:
+                remaining = len(entries) - shown
+                lines.append(f"  ... 还有 {remaining} 项")
+                break
+            shown += 1
             prefix = "📁 " if e.is_dir() else "📄 "
             lines.append(f"  {prefix}{e.name}")
+            if e.is_dir():
+                sub = self._list_dir(e.path)
+                if sub is not None:
+                    for s in sub[:_MAX_SUBDIR_ENTRIES]:
+                        sp = "📁 " if s.is_dir() else "📄 "
+                        lines.append(f"    {sp}{s.name}")
+                    if len(sub) > _MAX_SUBDIR_ENTRIES:
+                        lines.append(f"    ... 还有 {len(sub) - _MAX_SUBDIR_ENTRIES} 项")
 
+        label = "用户想浏览此目录，请选择操作" if not filename else f"用户想找: \"{filename}\""
         lines.extend([
             "",
-            f"用户想找: \"{filename}\"",
-        ])
-
-        if self._history:
-            lines.append(f"操作历史: {', '.join(self._history[-6:])}")
-
-        lines.extend([
+            label,
             "",
             "请选择下一步，只返回 JSON：",
             '{"action": "open_file", "target": "文件名"}',
@@ -201,26 +229,36 @@ class FileNavigator:
 
         return "\n".join(lines)
 
+    def _trim_context(self):
+        has_system = self._context and self._context[0].get("role") == "system"
+        turns = self._context[1:] if has_system else self._context
+        pairs = [turns[i:i+2] for i in range(0, len(turns), 2)]
+        if len(pairs) > _MAX_CONTEXT_ROUNDS:
+            pairs = pairs[-_MAX_CONTEXT_ROUNDS:]
+        flat = [msg for pair in pairs for msg in pair]
+        self._context = ([self._context[0]] if has_system else []) + flat
+
     def _ask_ai(self, path: str, entries, filename: str) -> dict | None:
+        if not self._context or self._context[0].get("role") != "system":
+            self._context.insert(0, {"role": "system", "content": _SYSTEM_PROMPT})
+
         prompt = self._build_prompt(path, entries, filename)
         try:
-            response = self._engine.chat(prompt)
-            cleaned = response.strip()
-            if cleaned.startswith("```"):
-                cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
-                if cleaned.endswith("```"):
-                    cleaned = cleaned[:-3]
-                cleaned = cleaned.strip()
-            cleaned = cleaned.strip("`").strip()
-
-            result = json.loads(cleaned)
-            if not isinstance(result, dict) or "action" not in result:
-                logger.warning(f"AI returned unexpected format: {result}")
+            messages = list(self._context)
+            messages.append({"role": "user", "content": prompt})
+            response = self._engine.chat(messages, temperature=0.1, timeout=10)
+            if not response:
+                logger.warning("AI returned empty response")
                 return None
+
+            result = parse_ai_json_response(response)
+            if result is None or "action" not in result:
+                return None
+
+            self._context.append({"role": "user", "content": prompt})
+            self._context.append({"role": "assistant", "content": response})
+            self._trim_context()
             return result
-        except json.JSONDecodeError:
-            logger.warning(f"AI returned invalid JSON: {response}")
-            return None
         except Exception as e:
             logger.error(f"AI call failed: {e}")
             return None

@@ -90,7 +90,7 @@ def main():
     indicator.show()
     pipeline.on_state_change(lambda s: indicator.set_state(s))
     pipeline.on_audio_level(lambda lv: indicator.set_level(lv))
-    pipeline.on_command(lambda c: indicator.set_path(c[4:]) if c.startswith("nav:") else None)
+    pipeline.on_command(lambda c: indicator.set_path(c[4:]) if c.startswith(("nav:", "cmd:")) else None)
 
     print(t("app.running"))
     print(t("app.running_hint") + "\n")
