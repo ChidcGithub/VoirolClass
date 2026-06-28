@@ -118,37 +118,32 @@ def _resolve_url(text: str) -> str:
 
 
 def _open_in_browser(url: str, browser: str):
+    import webbrowser
     try:
         if browser == "edge":
-            import webbrowser
-            try:
-                edge = webbrowser.get("edge")
-                edge.open(url)
-            except Exception:
-                subprocess.Popen(["msedge", url], shell=True)
+            webbrowser.open(f"microsoft-edge:{url}")
         elif browser == "chrome":
-            import webbrowser
             try:
                 chrome = webbrowser.get("chrome")
                 chrome.open(url)
             except Exception:
-                subprocess.Popen(["chrome", url], shell=True)
+                webbrowser.open(url)
         elif browser == "firefox":
-            import webbrowser
             try:
                 ff = webbrowser.get("firefox")
                 ff.open(url)
             except Exception:
-                subprocess.Popen(["firefox", url], shell=True)
+                webbrowser.open(url)
         else:
-            import webbrowser
             webbrowser.open(url)
 
         logger.info(f"Action: open_url -> {url} in {browser}")
     except Exception as e:
         logger.error(f"Failed to open browser ({browser}): {e}")
-        import webbrowser
-        webbrowser.open(url)
+        try:
+            webbrowser.open(url)
+        except Exception:
+            pass
 
 
 def open_url(param: str = ""):
