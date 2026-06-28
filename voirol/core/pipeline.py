@@ -148,6 +148,7 @@ class VoicePipeline:
 
         ai_cfg = config.ai
         self._ai_matcher: AIMatcher | None = None
+        self._file_navigator = None
         if ai_cfg.get("enabled") and ai_cfg.get("api_key"):
             ai_engine = OpenAIEngine(
                 api_url=ai_cfg.get("api_url", "https://api.deepseek.com/v1"),
@@ -162,6 +163,16 @@ class VoicePipeline:
                 timeout=ai_cfg.get("timeout", 10),
             )
             logger.info("AI command matcher enabled")
+
+            from voirol.command.file_navigator import FileNavigator
+            from voirol.command.actions import set_file_navigator
+            self._file_navigator = FileNavigator(
+                engine=ai_engine,
+                max_depth=config.file.get("ai_search_depth", 5),
+                path_callback=self._on_navigator_path,
+            )
+            set_file_navigator(self._file_navigator)
+            logger.info("File navigator enabled")
         else:
             logger.info("AI command matcher disabled")
 
@@ -205,6 +216,13 @@ class VoicePipeline:
         reg.register(Command("enter", ["确定", "确认", "回车"], "确定", enter))
 
         self._cmd_registry = reg
+
+    def _on_navigator_path(self, path: str):
+        for cb in self._command_callbacks:
+            try:
+                cb(f"nav:{path}")
+            except Exception:
+                pass
 
     def on_state_change(self, callback: Callable[[PipelineState], None]):
         self._state_callbacks.append(callback)

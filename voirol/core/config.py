@@ -90,6 +90,7 @@ class Config:
     })
     file: dict = field(default_factory=lambda: {
         "search_dirs": ["~/Desktop", "~/Documents", "~/Downloads"],
+        "ai_search_depth": 5,
     })
     logging: dict = field(default_factory=lambda: {
         "level": "INFO",

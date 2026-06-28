@@ -65,6 +65,7 @@ DEFAULT_SEARCH_ENGINES = {
 _selected_browser = "edge"
 _selected_search_engine = None
 _selected_file_search_dirs = None
+_file_navigator = None
 
 APP_MAP = {
     "记事本": "notepad", "notepad": "notepad",
@@ -90,6 +91,11 @@ FILE_SEARCH_DIRS = [
 def set_file_search_dirs(dirs: list[str]):
     global _selected_file_search_dirs
     _selected_file_search_dirs = [os.path.expanduser(d) for d in dirs]
+
+
+def set_file_navigator(nav):
+    global _file_navigator
+    _file_navigator = nav
 
 
 def set_default_browser(browser: str):
@@ -271,6 +277,16 @@ def open_file_action(param: str = ""):
                 logger.warning(f"Failed to open '{matches[0]}': {e}")
 
     logger.warning(f"Action: open_file -> '{param}' not found")
+    nav = _file_navigator
+    if nav:
+        nav_path = nav.find_file(param, dirs)
+        if nav_path:
+            try:
+                os.startfile(nav_path)
+                logger.info(f"Action: open_file (ai) -> {nav_path}")
+                return
+            except Exception as e:
+                logger.warning(f"Failed to open ai-found '{nav_path}': {e}")
     _open_file_dialog_native()
 
 

@@ -9,7 +9,7 @@ from PyQt6.QtCore import (
     pyqtSignal,
     pyqtProperty,
 )
-from PyQt6.QtWidgets import QApplication, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
 from voirol.core.pipeline import PipelineState
 from voirol.gui.gl_indicator import GLIndicator
@@ -18,6 +18,7 @@ from voirol.gui.gl_indicator import GLIndicator
 class ListeningIndicator(QWidget):
     _state_signal = pyqtSignal(object)
     _level_signal = pyqtSignal(float)
+    _path_signal = pyqtSignal(str)
 
     IDLE_W = 60
     IDLE_H = 4
@@ -42,6 +43,7 @@ class ListeningIndicator(QWidget):
 
         self._state_signal.connect(self._apply_state)
         self._level_signal.connect(self._apply_level)
+        self._path_signal.connect(self._apply_path)
 
         self._state = PipelineState.IDLE
         self._levels = [0.0, 0.0, 0.0]
@@ -51,6 +53,21 @@ class ListeningIndicator(QWidget):
         self._trans_value = 0.0
 
         self._gl_widget = GLIndicator(self)
+
+        self._path_label = QLabel(self)
+        self._path_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._path_label.setStyleSheet("""
+            QLabel {
+                background: rgba(0, 0, 0, 160);
+                color: white;
+                font-size: 12px;
+                padding: 3px 10px;
+                border-radius: 4px;
+            }
+        """)
+        self._path_label.setWordWrap(True)
+        self._path_label.setMaximumWidth(400)
+        self._path_label.hide()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -88,6 +105,9 @@ class ListeningIndicator(QWidget):
     def set_level(self, level: float):
         self._level_signal.emit(max(0.0, min(1.0, level)))
 
+    def set_path(self, text: str):
+        self._path_signal.emit(text)
+
     def _apply_state(self, state: PipelineState):
         self._state = state
 
@@ -106,9 +126,25 @@ class ListeningIndicator(QWidget):
             self._anim.setEndValue(target_geo)
             self._anim.start()
 
+        if state == PipelineState.IDLE:
+            self._path_label.hide()
+
     def _apply_level(self, level: float):
         self._level_history.appendleft(level)
         self._levels = list(self._level_history)
+
+    def _apply_path(self, text: str):
+        if not text or self._state == PipelineState.IDLE:
+            self._path_label.hide()
+            return
+        self._path_label.setText(text)
+        geo = self.geometry()
+        label_y = geo.y() + geo.height() + 6
+        self._path_label.setGeometry(
+            geo.x(), label_y,
+            geo.width(), self._path_label.sizeHint().height(),
+        )
+        self._path_label.show()
 
     def _tick(self):
         for i in range(3):
