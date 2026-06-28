@@ -22,8 +22,8 @@ class ListeningIndicator(QWidget):
 
     IDLE_W = 60
     IDLE_H = 4
-    LISTEN_W = 120
-    LISTEN_H = 82
+    LISTEN_W = 100
+    LISTEN_H = 64
 
     def __init__(self):
         super().__init__()
@@ -39,7 +39,7 @@ class ListeningIndicator(QWidget):
         screen = QApplication.primaryScreen().geometry()
         cx = screen.width() // 2
         self._idle_geo = QRect(cx - self.IDLE_W // 2, 0, self.IDLE_W, self.IDLE_H)
-        self._listen_geo = QRect(cx - self.LISTEN_W // 2, 10, self.LISTEN_W, self.LISTEN_H)
+        self._listen_geo = QRect(cx - self.LISTEN_W // 2, 0, self.LISTEN_W, self.LISTEN_H)
 
         self._state_signal.connect(self._apply_state)
         self._level_signal.connect(self._apply_level)
@@ -136,14 +136,21 @@ class ListeningIndicator(QWidget):
     def _apply_path(self, text: str):
         if not text or self._state == PipelineState.IDLE:
             self._path_label.hide()
+            self.setMinimumHeight(0)
+            self.setMaximumHeight(16777215)
             return
         self._path_label.setText(text)
-        label_y = self.LISTEN_H + 6
+        label_h = min(self._path_label.sizeHint().height(), 28)
         self._path_label.setGeometry(
-            0, label_y,
-            self.LISTEN_W, self._path_label.sizeHint().height(),
+            0, self.height() - label_h - 2,
+            self.width(), label_h,
         )
         self._path_label.show()
+
+        needed_h = self.LISTEN_H + 6 + label_h
+        if self.height() < needed_h:
+            geo = self.geometry()
+            self.setFixedHeight(needed_h)
 
     def _tick(self):
         for i in range(3):

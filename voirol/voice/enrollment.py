@@ -1,5 +1,6 @@
 import os
 import pickle
+import threading
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -21,6 +22,7 @@ class SpeakerProfile:
 class EnrollmentManager:
     enrollment_dir: str = "data/enrollments"
     _profiles: dict[str, SpeakerProfile] = field(default_factory=dict)
+    _lock: threading.Lock = field(default_factory=threading.Lock)
 
     def __post_init__(self):
         os.makedirs(self.enrollment_dir, exist_ok=True)
@@ -47,25 +49,37 @@ class EnrollmentManager:
         path = self._profile_path(profile.name)
         with open(path, "wb") as f:
             pickle.dump(profile, f)
-        self._profiles[profile.name] = profile
+        with self._lock:
+            self._profiles[profile.name] = profile
         logger.info(f"Saved profile: {profile.name}")
 
     def get_profile(self, name: str) -> SpeakerProfile | None:
-        return self._profiles.get(name)
+        with self._lock:
+            return self._profiles.get(name)
 
     def list_profiles(self) -> list[str]:
-        return list(self._profiles.keys())
+        with self._lock:
+            return list(self._profiles.keys())
 
     def delete_profile(self, name: str):
         path = self._profile_path(name)
         if os.path.exists(path):
             os.remove(path)
-        self._profiles.pop(name, None)
+        with self._lock:
+            self._profiles.pop(name, None)
         logger.info(f"Deleted profile: {name}")
 
     def delete_all_profiles(self):
-        for name in list(self._profiles.keys()):
-            self.delete_profile(name)
+        with self._lock:
+            names = list(self._profiles.keys())
+        for name in names:
+            path = self._profile_path(name)
+            if os.path.exists(path):
+                os.remove(path)
+        with self._lock:
+            for name in names:
+                self._profiles.pop(name, None)
+            logger.info("Deleted all profiles")
 
     def save_enrollment_audio(
         self, teacher_name: str, utterance_idx: int, audio: np.ndarray, sample_rate: int

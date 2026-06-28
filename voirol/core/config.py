@@ -32,6 +32,7 @@ class Config:
         "enrollment_utterances": 5,
         "enrollment_dir": "data/enrollments",
         "ring_buffer_seconds": 2.0,
+        "max_utterance_seconds": 15,
     })
     asr: dict = field(default_factory=lambda: {
         "engine": "vosk",

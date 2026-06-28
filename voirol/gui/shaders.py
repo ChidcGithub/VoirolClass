@@ -82,8 +82,8 @@ void main() {
     vec3 bg = background(duv, daspect, u_time);
     vec3 color = bg;
 
-    float w = mix(60.0, 120.0, u_transition);
-    float h = mix(4.0, 44.0, u_transition);
+    float w = mix(60.0, 100.0, u_transition);
+    float h = mix(4.0, 64.0, u_transition);
 
     vec2 half_size = vec2(w, h) * 0.5;
     float radius = mix(2.0, half_size.y, u_transition);

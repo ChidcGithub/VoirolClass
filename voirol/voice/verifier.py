@@ -1,3 +1,5 @@
+import threading
+
 import numpy as np
 from speakeronnx import SpeakerEmbedder
 
@@ -11,15 +13,17 @@ DEFAULT_THRESHOLD = 0.45
 
 _EMBEDDER = None
 _EMBEDDER_KEY = None
+_EMBEDDER_LOCK = threading.Lock()
 
 
 def _get_embedder(model_path: str = None):
     global _EMBEDDER, _EMBEDDER_KEY
     key = model_path or DEFAULT_MODEL
-    if _EMBEDDER is None or key != _EMBEDDER_KEY:
-        _EMBEDDER_KEY = key
-        _EMBEDDER = SpeakerEmbedder(model=key)
-        logger.info(f"Speaker embedder loaded: {key}")
+    with _EMBEDDER_LOCK:
+        if _EMBEDDER is None or key != _EMBEDDER_KEY:
+            _EMBEDDER_KEY = key
+            _EMBEDDER = SpeakerEmbedder(model=key)
+            logger.info(f"Speaker embedder loaded: {key}")
     return _EMBEDDER
 
 
@@ -50,23 +54,28 @@ class SpeakerVerifier:
         self.threshold = threshold
         self._model_path = model_path or DEFAULT_MODEL
         self._profile: SpeakerProfile | None = None
+        self._lock = threading.Lock()
         _get_embedder(self._model_path)
         logger.info(
             f"SpeakerVerifier initialized (threshold={threshold}, model={self._model_path})"
         )
 
     def set_profile(self, profile: SpeakerProfile | None):
-        self._profile = profile
+        with self._lock:
+            self._profile = profile
         if profile:
             logger.info(f"Active profile set to: {profile.name}")
 
     def get_active_name(self) -> str | None:
-        return self._profile.name if self._profile else None
+        with self._lock:
+            return self._profile.name if self._profile else None
 
     def verify(
         self, audio: np.ndarray, sample_rate: int = 16000
     ) -> tuple[bool, float]:
-        if self._profile is None:
+        with self._lock:
+            profile = self._profile
+        if profile is None:
             logger.warning("No active profile for verification")
             return False, 0.0
 
@@ -76,15 +85,15 @@ class SpeakerVerifier:
 
         embedding = extract_embedding(audio, sample_rate, self._model_path, tag="verify")
 
-        if len(embedding) != len(self._profile.embedding):
+        if len(embedding) != len(profile.embedding):
             logger.warning(
                 f"Embedding dimension mismatch: profile="
-                f"{len(self._profile.embedding)}, "
+                f"{len(profile.embedding)}, "
                 f"live={len(embedding)}. Please re-enroll this teacher."
             )
             return False, 0.0
 
-        similarity = cosine_similarity(embedding, self._profile.embedding)
+        similarity = cosine_similarity(embedding, profile.embedding)
         is_match = similarity >= self.threshold
 
         logger.debug(

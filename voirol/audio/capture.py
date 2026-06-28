@@ -23,6 +23,7 @@ class AudioCapture:
         self._queue: queue.Queue[np.ndarray] = queue.Queue(maxsize=64)
         self._stream: sd.InputStream | None = None
         self._running = False
+        self._drop_count = 0
         self._find_valid_device()
 
     def _find_valid_device(self):
@@ -55,8 +56,11 @@ class AudioCapture:
             logger.warning(f"Audio input status: {status}")
         try:
             self._queue.put_nowait(indata.copy())
+            self._drop_count = 0
         except queue.Full:
-            pass
+            self._drop_count += 1
+            if self._drop_count in (1, 10, 50) or self._drop_count % 500 == 0:
+                logger.warning(f"Audio queue full, dropped {self._drop_count} blocks total")
 
     def start(self):
         if self._running:

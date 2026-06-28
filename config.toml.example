@@ -1,24 +1,25 @@
 [general]
-language = "en"
+language = "zh-CN"
 sample_rate = 16000
 block_size = 1024
 input_device = -1
 
 [vad]
 type = "silero"
-threshold = 0.25
+threshold = 0.5
 min_speech_duration = 0.5
-silence_duration = 1.0
+silence_duration = 0.8
 
 [voice]
 model_path = "campplus-zh-en"
 verification_threshold = 0.45
 enrollment_utterances = 5
 enrollment_dir = "data/enrollments"
-ring_buffer_seconds = 1.5
+ring_buffer_seconds = 2.0
+max_utterance_seconds = 15
 
 [asr]
-engine = "sensevoice"
+engine = "vosk"
 vosk_model_path = "models/vosk_zh"
 vosk_language = "zh-cn"
 sensevoice_model_path = "models/sensevoice"
@@ -44,7 +45,7 @@ toggle_mute = "ctrl+alt+m"
 open_settings = "ctrl+alt+s"
 
 [ui]
-font_size = 10
+font_size = 13
 border_radius = 5
 theme = "system"
 
@@ -52,9 +53,9 @@ theme = "system"
 current_teacher = ""
 
 [debug]
-verbose = true
+verbose = false
 print_vad = false
-log_asr_unverified = true
+log_asr_unverified = false
 
 [download]
 mirror_url = ""
@@ -65,10 +66,17 @@ file = ""
 
 [ai]
 enabled = false
-provider = "openai"
 api_url = "https://api.deepseek.com/v1"
 api_key = ""
 model = "deepseek-chat"
 temperature = 0.1
 timeout = 10
 system_prompt = ""
+
+[browser]
+default = "edge"
+search_engine = "https://www.baidu.com/s?wd={}"
+
+[file]
+search_dirs = ["~/Desktop", "~/Documents", "~/Downloads"]
+ai_search_depth = 5

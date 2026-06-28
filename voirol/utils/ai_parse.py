@@ -15,6 +15,11 @@ def parse_ai_json_response(response: str) -> dict | None:
             cleaned = cleaned.strip()
         cleaned = cleaned.strip("`").strip()
 
+        for i, ch in enumerate(cleaned):
+            if ch in ("{", "["):
+                cleaned = cleaned[i:]
+                break
+
         result = json.loads(cleaned)
         if not isinstance(result, dict):
             logger.warning(f"AI returned non-dict JSON: {result}")

@@ -68,6 +68,7 @@ class SettingsDialog(QDialog):
         self._add_general_tab()
         self._add_ai_tab()
         self._add_model_tab()
+        self._add_log_tab()
         self._add_about_tab()
 
 
@@ -200,6 +201,17 @@ class SettingsDialog(QDialog):
         self._rb_spin.valueChanged.connect(self._on_ring_buffer_changed)
         layout.addWidget(self._rb_spin)
 
+        mu_label = QLabel(t("voice.max_utterance"))
+        mu_label.setToolTip(t("voice.max_utterance_desc"))
+        layout.addWidget(mu_label)
+
+        self._mu_spin = QSpinBox()
+        self._mu_spin.setRange(3, 60)
+        self._mu_spin.setSuffix(" s")
+        self._mu_spin.setValue(self.pipeline.config.voice.get("max_utterance_seconds", 15))
+        self._mu_spin.valueChanged.connect(self._on_max_utterance_changed)
+        layout.addWidget(self._mu_spin)
+
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
         line.setFrameShadow(QFrame.Shadow.Sunken)
@@ -295,7 +307,7 @@ class SettingsDialog(QDialog):
             msg.addButton(t("close"), QMessageBox.ButtonRole.RejectRole)
             msg.exec()
             if msg.clickedButton() == go_btn:
-                self.tabs.setCurrentIndex(2)
+                self.tabs.setCurrentIndex(3)
             return False
         return True
 
@@ -380,6 +392,11 @@ class SettingsDialog(QDialog):
         self.pipeline.config.voice["ring_buffer_seconds"] = value
         save_config(self.pipeline.config)
         logger.info(f"Ring buffer seconds set to {value}")
+
+    def _on_max_utterance_changed(self, value: int):
+        self.pipeline.config.voice["max_utterance_seconds"] = value
+        save_config(self.pipeline.config)
+        logger.info(f"Max utterance seconds set to {value}")
 
     def _apply_current_theme(self):
         cfg_theme = self.pipeline.config.ui.get("theme", "system")
@@ -795,16 +812,129 @@ class SettingsDialog(QDialog):
     def _on_ai_reset_prompt(self):
         self._ai_prompt_edit.setPlainText(DEFAULT_SYSTEM_PROMPT)
 
+    def _add_log_tab(self):
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(8)
+
+        filter_layout = QHBoxLayout()
+        filter_label = QLabel(t("log.filter"))
+        filter_layout.addWidget(filter_label)
+
+        self._log_level_combo = QComboBox()
+        self._log_level_combo.addItem(t("log.level_all"), "")
+        self._log_level_combo.addItem(t("log.level_debug"), "DEBUG")
+        self._log_level_combo.addItem(t("log.level_info"), "INFO")
+        self._log_level_combo.addItem(t("log.level_warning"), "WARNING")
+        self._log_level_combo.addItem(t("log.level_error"), "ERROR")
+        self._log_level_combo.currentIndexChanged.connect(self._on_log_filter_changed)
+        filter_layout.addWidget(self._log_level_combo)
+
+        self._log_auto_scroll_cb = QCheckBox(t("log.auto_scroll"))
+        self._log_auto_scroll_cb.setChecked(True)
+        filter_layout.addWidget(self._log_auto_scroll_cb)
+
+        filter_layout.addStretch()
+
+        clear_btn = QPushButton(t("log.clear"))
+        clear_btn.clicked.connect(self._on_log_clear)
+        filter_layout.addWidget(clear_btn)
+
+        layout.addLayout(filter_layout)
+
+        self._log_view = QPlainTextEdit()
+        self._log_view.setReadOnly(True)
+        self._log_view.setMaximumBlockCount(5000)
+        self._log_view.setStyleSheet("""
+            QPlainTextEdit {
+                font-family: Consolas, 'Courier New', monospace;
+                font-size: 11px;
+                background: rgba(0,0,0,40);
+                color: rgba(255,255,255,200);
+                border: 1px solid rgba(255,255,255,20);
+                border-radius: 4px;
+                padding: 4px;
+            }
+        """)
+        layout.addWidget(self._log_view)
+
+        self._log_buffer: list[str] = []
+
+        from voirol.utils.logger import _log_signal
+        _log_signal.emitted.connect(self._on_log_message)
+
+        self.tabs.addTab(tab, t("tab.log"))
+
+    def _on_log_message(self, msg: str):
+        self._log_buffer.append(msg)
+        if len(self._log_buffer) > 10000:
+            self._log_buffer = self._log_buffer[-5000:]
+        level_filter = self._log_level_combo.currentData()
+        if level_filter and f"[{level_filter}]" not in msg:
+            return
+        self._log_view.appendPlainText(msg)
+        if self._log_auto_scroll_cb.isChecked():
+            from PyQt6.QtGui import QTextCursor
+            self._log_view.moveCursor(QTextCursor.MoveOperation.End)
+
+    def _on_log_filter_changed(self):
+        level_filter = self._log_level_combo.currentData()
+        self._log_view.clear()
+        for msg in self._log_buffer:
+            if level_filter and f"[{level_filter}]" not in msg:
+                continue
+            self._log_view.appendPlainText(msg)
+
+    def _on_log_clear(self):
+        self._log_buffer.clear()
+        self._log_view.clear()
+
     def _add_about_tab(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(16, 16, 16, 16)
-        layout.addWidget(QLabel(t("about.version")))
+        layout.setSpacing(8)
+
+        self._version_label = QLabel(t("about.version"))
+        self._version_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._version_label.mousePressEvent = lambda e: self._on_version_click()
+        layout.addWidget(self._version_label)
+
         layout.addWidget(QLabel(t("about.description")))
         layout.addWidget(QLabel(""))
         layout.addWidget(QLabel(t("about.tech")))
+
+        layout.addSpacing(16)
+
+        self._dev_group = QGroupBox("Developer Options")
+        self._dev_group.setVisible(False)
+        dev_layout = QVBoxLayout(self._dev_group)
+        dev_layout.addWidget(QLabel("Test the fatal error crash dialog:"))
+        crash_btn = QPushButton("Trigger Fatal Error")
+        crash_btn.clicked.connect(self._on_dev_crash)
+        dev_layout.addWidget(crash_btn)
+        layout.addWidget(self._dev_group)
+
         layout.addStretch()
         self.tabs.addTab(tab, t("tab.about"))
+
+    def _on_version_click(self):
+        self._version_clicks = getattr(self, '_version_clicks', 0) + 1
+        if self._version_clicks >= 10:
+            self._version_clicks = 0
+            self._dev_group.setVisible(True)
+
+    def _on_dev_crash(self):
+        import traceback
+        import sys
+        try:
+            raise RuntimeError("Manual crash triggered from Developer Options")
+        except RuntimeError:
+            details = "".join(traceback.format_exc())
+            print(details, file=sys.stderr)
+            from voirol.gui.crash_dialog import CrashDialog
+            CrashDialog(details).exec()
 
 
 def _on_lang_changed(dialog: SettingsDialog, lang_code: str):
@@ -847,27 +977,27 @@ def _on_tencent_key_changed(dialog: SettingsDialog, id_input, key_input):
 
 def _show_enroll_dialog(pipeline: VoicePipeline):
     dialog = QDialog()
-    dialog.setWindowTitle("注册新老师")
+    dialog.setWindowTitle(t("teacher.enroll_title"))
     dialog.setMinimumWidth(350)
 
     layout = QVBoxLayout(dialog)
 
     form = QFormLayout()
     name_input = QLineEdit()
-    name_input.setPlaceholderText("输入老师姓名")
-    form.addRow("姓名:", name_input)
+    name_input.setPlaceholderText(t("teacher.enroll_name_placeholder"))
+    form.addRow(t("teacher.enroll_name_label"), name_input)
     layout.addLayout(form)
 
-    info_label = QLabel("点击「开始注册」后，请依次读出以下句子：")
+    info_label = QLabel(t("teacher.enroll_instruction"))
     info_label.setWordWrap(True)
     layout.addWidget(info_label)
 
     sentences = [
-        "今天我们来学习新的一课",
-        "请大家打开课本第20页",
-        "注意看黑板上的重点内容",
-        "这个问题谁来回答",
-        "下课之前我们来总结一下",
+        t("teacher.enroll_sentence_1"),
+        t("teacher.enroll_sentence_2"),
+        t("teacher.enroll_sentence_3"),
+        t("teacher.enroll_sentence_4"),
+        t("teacher.enroll_sentence_5"),
     ]
 
     sentence_list = QListWidget()
@@ -875,7 +1005,7 @@ def _show_enroll_dialog(pipeline: VoicePipeline):
         sentence_list.addItem(s)
     layout.addWidget(sentence_list)
 
-    start_btn = QPushButton("开始注册")
+    start_btn = QPushButton(t("teacher.enroll_start"))
     layout.addWidget(start_btn)
     result_label = QLabel("")
     layout.addWidget(result_label)
@@ -883,69 +1013,69 @@ def _show_enroll_dialog(pipeline: VoicePipeline):
     def on_start():
         name = name_input.text().strip()
         if not name:
-            QMessageBox.warning(dialog, "提示", "请输入老师姓名")
+            QMessageBox.warning(dialog, t("prompt.title"), t("teacher.enroll_enter_name"))
             return
 
         pipeline.pause()
 
-        import sounddevice as sd
+        try:
+            import sounddevice as sd
 
-        sample_rate = pipeline.config.general["sample_rate"]
-        duration = 3
-        collected = []
+            sample_rate = pipeline.config.general["sample_rate"]
+            duration = 3
+            collected = []
 
-        for i, sentence in enumerate(sentences):
-            result_label.setText(
-                f"第 {i+1}/{len(sentences)} 句: 3秒后请读出「{sentence}」"
-            )
-            result_label.repaint()
-            QApplication.processEvents()
-
-            QMessageBox.information(
-                dialog, "录音",
-                f"点击确定后开始录音 ({duration}秒)\n\n请读出: 「{sentence}」"
-            )
-
-            audio = sd.rec(
-                int(sample_rate * duration),
-                samplerate=sample_rate,
-                channels=1,
-                dtype=np.float32,
-            )
-            sd.wait()
-
-            audio = audio.flatten()
-            if np.max(np.abs(audio)) > 0.01:
-                pipeline.enrollment.save_enrollment_audio(
-                    name, i, audio, sample_rate
+            for i, sentence in enumerate(sentences):
+                result_label.setText(
+                    t("teacher.enroll_recording", idx=i + 1, total=len(sentences), sentence=sentence)
                 )
-                from voirol.audio.processor import preprocess
-                collected.append(preprocess(audio, sample_rate))
-                result_label.setText(f"✓ 第 {i+1} 句已录制")
-            else:
-                result_label.setText(f"✗ 未检测到声音，跳过第 {i+1} 句")
-            QApplication.processEvents()
+                result_label.repaint()
+                QApplication.processEvents()
 
-        if len(collected) < 2:
-            QMessageBox.warning(
-                dialog, "失败", "有效录音太少，请重试。确保麦克风正常工作。"
+                QMessageBox.information(
+                    dialog, t("teacher.enroll_dialog_title"),
+                    t("teacher.enroll_dialog_text", duration=duration, sentence=sentence),
+                )
+
+                audio = sd.rec(
+                    int(sample_rate * duration),
+                    samplerate=sample_rate,
+                    channels=1,
+                    dtype=np.float32,
+                )
+                sd.wait()
+
+                audio = audio.flatten()
+                if np.max(np.abs(audio)) > 0.01:
+                    pipeline.enrollment.save_enrollment_audio(
+                        name, i, audio, sample_rate
+                    )
+                    from voirol.audio.processor import preprocess
+                    collected.append(preprocess(audio, sample_rate))
+                    result_label.setText(t("teacher.enroll_recorded", idx=i + 1))
+                else:
+                    result_label.setText(t("teacher.enroll_skipped", idx=i + 1))
+                QApplication.processEvents()
+
+            if len(collected) < 2:
+                QMessageBox.warning(
+                    dialog, t("teacher.enroll_failed"), t("teacher.enroll_too_few")
+                )
+                return
+
+            from voirol.voice.verifier import create_profile_from_audio
+            profile = create_profile_from_audio(
+                collected, name, sample_rate,
+                model_path=pipeline.config.voice.get("model_path", "campplus-zh-en"),
             )
+            pipeline.enrollment.save_profile(profile)
+
+            result_label.setText(t("teacher.enroll_complete", name=name))
+            QMessageBox.information(
+                dialog, t("teacher.enroll_done"), t("teacher.enroll_success", name=name)
+            )
+        finally:
             pipeline.resume()
-            return
-
-        from voirol.voice.verifier import create_profile_from_audio
-        profile = create_profile_from_audio(
-            collected, name, sample_rate,
-            model_path=pipeline.config.voice.get("model_path", "campplus-zh-en"),
-        )
-        pipeline.enrollment.save_profile(profile)
-
-        result_label.setText(f"注册完成！已为 {name} 创建声纹模型")
-        QMessageBox.information(
-            dialog, "完成", f"老师 {name} 注册成功！"
-        )
-
-        pipeline.resume()
 
     start_btn.clicked.connect(on_start)
     dialog.exec()

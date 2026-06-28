@@ -1,4 +1,5 @@
 import sys
+import traceback
 
 import numpy as np
 
@@ -7,7 +8,7 @@ from voirol.core.pipeline import VoicePipeline
 from voirol.gui.theme import Theme, apply_theme, detect_system_theme
 from voirol.gui.tray import create_tray_icon
 from voirol.utils.i18n import state_name, t
-from voirol.utils.logger import get_logger, setup_file_logger
+from voirol.utils.logger import get_logger, setup_logger
 from voirol.voice.model_download import check_model_status
 
 logger = get_logger("main")
@@ -23,11 +24,10 @@ def main():
 
     config = load_config()
 
-    if config.logging.get("file"):
-        setup_file_logger(
-            config.logging["file"],
-            config.logging.get("level", "INFO"),
-        )
+    setup_logger(
+        log_dir="logs",
+        level=config.logging.get("level", "INFO"),
+    )
 
     logger.info("Starting VoirolClass...")
 
@@ -48,56 +48,94 @@ def main():
     app.setApplicationName("VoirolClass")
     app.setQuitOnLastWindowClosed(False)
 
-    cfg_theme = config.ui.get("theme", "system")
-    if cfg_theme == "system":
-        theme = detect_system_theme()
-    else:
-        theme = Theme(cfg_theme)
-    apply_theme(app, theme, config.ui.get("border_radius", 5))
+    def _crash_handler(exc_type, exc_value, exc_tb):
+        if issubclass(exc_type, KeyboardInterrupt):
+            sys.__excepthook__(exc_type, exc_value, exc_tb)
+            return
+        details = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        print(details, file=sys.stderr)
+        from PyQt6.QtWidgets import QApplication
+        qapp = QApplication.instance()
+        if qapp is not None:
+            from voirol.gui.crash_dialog import CrashDialog
+            CrashDialog(details).exec()
+        sys.exit(1)
 
-    font_id = QFontDatabase.addApplicationFont("fonts/GSF.ttf")
-    if font_id >= 0:
-        families = QFontDatabase.applicationFontFamilies(font_id)
-        if families:
-            app.setFont(QFont(families[0], config.ui.get("font_size", 13)))
+    sys.excepthook = _crash_handler
 
-    pipeline = VoicePipeline(config)
+    from voirol.gui.splash import StartupSplash
+    splash = StartupSplash()
+    splash.show()
+    splash.set_status(t("splash.starting"))
 
-    if not pipeline.verifier.get_active_name():
-        teachers = pipeline.enrollment.list_profiles()
-        if teachers:
-            first = teachers[0]
-            pipeline.set_teacher(first)
-            logger.info(f"Auto-selected first teacher: {first}")
+    pipeline = None
+    try:
+        cfg_theme = config.ui.get("theme", "system")
+        if cfg_theme == "system":
+            theme = detect_system_theme()
         else:
-            logger.warning("No teacher enrolled. Use tray menu to register.")
-            print(t("app.startup_no_teacher"))
-            print(t("app.startup_hint"))
+            theme = Theme(cfg_theme)
+        apply_theme(app, theme, config.ui.get("border_radius", 5))
 
-    pipeline.start()
+        font_id = QFontDatabase.addApplicationFont("fonts/GSF.ttf")
+        if font_id >= 0:
+            families = QFontDatabase.applicationFontFamilies(font_id)
+            if families:
+                app.setFont(QFont(families[0], config.ui.get("font_size", 13)))
 
-    ptt_key = config.hotkey.get("push_to_talk", "ctrl+alt+v")
-    pipeline.setup_hotkeys(ptt_key)
+        splash.set_status(t("splash.voice_engine"))
 
-    tray, tray_menu = create_tray_icon(app, pipeline)
+        pipeline = VoicePipeline(config)
 
-    def update_tray_state(state):
-        tray_menu._status_action.setText(state_name(state.value))
-    pipeline.on_state_change(update_tray_state)
+        if not pipeline.verifier.get_active_name():
+            teachers = pipeline.enrollment.list_profiles()
+            if teachers:
+                first = teachers[0]
+                pipeline.set_teacher(first)
+                logger.info(f"Auto-selected first teacher: {first}")
+            else:
+                logger.warning("No teacher enrolled. Use tray menu to register.")
+                print(t("app.startup_no_teacher"))
+                print(t("app.startup_hint"))
 
-    from voirol.gui.indicator import ListeningIndicator
-    indicator = ListeningIndicator()
-    indicator.show()
-    pipeline.on_state_change(lambda s: indicator.set_state(s))
-    pipeline.on_audio_level(lambda lv: indicator.set_level(lv))
-    pipeline.on_command(lambda c: indicator.set_path(c[4:]) if c.startswith(("nav:", "cmd:")) else None)
+        pipeline.start()
 
-    print(t("app.running"))
-    print(t("app.running_hint") + "\n")
+        splash.set_status(t("splash.hotkeys"))
+
+        ptt_key = config.hotkey.get("push_to_talk", "ctrl+alt+v")
+        pipeline.setup_hotkeys(ptt_key)
+
+        splash.set_status(t("splash.interface"))
+
+        tray, tray_menu = create_tray_icon(app, pipeline)
+
+        def update_tray_state(state):
+            tray_menu._status_action.setText(state_name(state.value))
+        pipeline.on_state_change(update_tray_state)
+
+        splash.set_status(t("splash.ready"))
+
+        from voirol.gui.indicator import ListeningIndicator
+        indicator = ListeningIndicator()
+        splash.close_with_delay(500)
+        indicator.show()
+        pipeline.on_state_change(lambda s: indicator.set_state(s))
+        pipeline.on_audio_level(lambda lv: indicator.set_level(lv))
+        pipeline.on_command(lambda c: indicator.set_path(c[4:]) if c.startswith(("nav:", "cmd:")) else None)
+
+        print(t("app.running"))
+        print(t("app.running_hint") + "\n")
+
+    except Exception:
+        logger.exception("Startup failed")
+        splash.close()
+        from voirol.gui.crash_dialog import CrashDialog
+        CrashDialog(traceback.format_exc()).exec()
 
     exit_code = app.exec()
 
-    pipeline.stop()
+    if pipeline:
+        pipeline.stop()
     sys.exit(exit_code)
 
 

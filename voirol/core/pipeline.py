@@ -1,3 +1,4 @@
+import concurrent.futures
 import threading
 import time
 from enum import Enum
@@ -57,6 +58,8 @@ class VoicePipeline:
         self._command_callbacks: list[Callable[[str], None]] = []
         self._audio_level_callbacks: list[Callable[[float], None]] = []
         self._audio_buffer: list[np.ndarray] = []
+        self._audio_lock = threading.Lock()
+        self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
         self._vad_buffer: list[float] = []
         self._in_speech = False
         self._ring_buffer: list[np.ndarray] = []
@@ -200,23 +203,23 @@ class VoicePipeline:
     def _setup_commands(self):
         reg = CommandRegistry()
 
-        reg.register(Command("next_page", ["下一页", "下一张", "下一页幻灯片", "下页"], "下一页", next_page))
-        reg.register(Command("prev_page", ["上一页", "上一张", "上一页幻灯片", "上页"], "上一页", prev_page))
-        reg.register(Command("black_screen", ["黑屏", "关屏幕", "关闭显示", "黑屏显示"], "黑屏", black_screen))
-        reg.register(Command("white_screen", ["白屏", "白板", "白屏显示", "白板显示"], "白屏", white_screen))
-        reg.register(Command("open_whiteboard", ["打开白板", "启动白板", "打开画板", "启动画板"], "打开白板", open_whiteboard))
-        reg.register(Command("open_browser", ["打开浏览器", "启动浏览器", "打开网页", "启动网页", "打开网址", "访问", "进入"], "打开浏览器", open_url, capture_param=True))
-        reg.register(Command("open_file", ["打开文件", "选择文件"], "打开文件", open_file_action, capture_param=True))
-        reg.register(Command("open", ["打开"], "打开", open_router, capture_param=True))
+        reg.register(Command("next_page", ["下一页", "下一张", "下一页幻灯片", "下页"], t("cmd.desc.next_page"), next_page))
+        reg.register(Command("prev_page", ["上一页", "上一张", "上一页幻灯片", "上页"], t("cmd.desc.prev_page"), prev_page))
+        reg.register(Command("black_screen", ["黑屏", "关屏幕", "关闭显示", "黑屏显示"], t("cmd.desc.black_screen"), black_screen))
+        reg.register(Command("white_screen", ["白屏", "白板", "白屏显示", "白板显示"], t("cmd.desc.white_screen"), white_screen))
+        reg.register(Command("open_whiteboard", ["打开白板", "启动白板", "打开画板", "启动画板"], t("cmd.desc.open_whiteboard"), open_whiteboard))
+        reg.register(Command("open_browser", ["打开浏览器", "启动浏览器", "打开网页", "启动网页", "打开网址", "访问", "进入"], t("cmd.desc.open_browser"), open_url, capture_param=True))
+        reg.register(Command("open_file", ["打开文件", "选择文件"], t("cmd.desc.open_file"), open_file_action, capture_param=True))
+        reg.register(Command("open", ["打开"], t("cmd.desc.open"), open_router, capture_param=True))
         from voirol.command.actions import volume_up as _vu, volume_down as _vd, fullscreen as _fs
 
-        reg.register(Command("volume_up", ["调高音量", "声音大点", "大声点", "加大音量", "增大音量", "音量加"], "调高音量", _vu))
-        reg.register(Command("volume_down", ["调低音量", "声音小点", "小声点", "减小音量", "降低音量", "音量减"], "调低音量", _vd))
-        reg.register(Command("mute", ["静音", "关闭声音", "无声", "安静"], "静音", mute))
-        reg.register(Command("fullscreen", ["全屏", "全屏播放", "全屏显示"], "全屏", _fs))
-        reg.register(Command("esc", ["退出", "取消", "返回", "退出全屏"], "退出", esc))
-        reg.register(Command("space", ["暂停", "播放", "继续", "空格"], "暂停/播放", space))
-        reg.register(Command("enter", ["确定", "确认", "回车"], "确定", enter))
+        reg.register(Command("volume_up", ["调高音量", "声音大点", "大声点", "加大音量", "增大音量", "音量加"], t("cmd.desc.volume_up"), _vu))
+        reg.register(Command("volume_down", ["调低音量", "声音小点", "小声点", "减小音量", "降低音量", "音量减"], t("cmd.desc.volume_down"), _vd))
+        reg.register(Command("mute", ["静音", "关闭声音", "无声", "安静"], t("cmd.desc.mute"), mute))
+        reg.register(Command("fullscreen", ["全屏", "全屏播放", "全屏显示"], t("cmd.desc.fullscreen"), _fs))
+        reg.register(Command("esc", ["退出", "取消", "返回", "退出全屏"], t("cmd.desc.esc"), esc))
+        reg.register(Command("space", ["暂停", "播放", "继续", "空格"], t("cmd.desc.space"), space))
+        reg.register(Command("enter", ["确定", "确认", "回车"], t("cmd.desc.enter"), enter))
 
         self._cmd_registry = reg
 
@@ -237,6 +240,8 @@ class VoicePipeline:
         self._audio_level_callbacks.append(callback)
 
     def _set_state(self, state: PipelineState):
+        if not self._running:
+            return
         self.state = state
         for cb in self._state_callbacks:
             try:
@@ -269,16 +274,24 @@ class VoicePipeline:
             if not self._in_speech:
                 self._in_speech = True
                 self._speech_start_time = time.time()
-                self._audio_buffer = list(self._ring_buffer)
-                self._ring_buffer.clear()
-                self._audio_buffer.append(processed.copy())
+                with self._audio_lock:
+                    self._audio_buffer = list(self._ring_buffer)
+                    self._ring_buffer.clear()
+                    self._audio_buffer.append(processed.copy())
+                    prepend_n = len(self._audio_buffer) - 1
                 self._set_state(PipelineState.LISTENING)
                 self._emit_audio_level(processed)
                 if self._verbose:
-                    print(t("vad.speech_start", n=len(self._audio_buffer) - 1))
+                    print(t("vad.speech_start", n=prepend_n))
             else:
-                self._audio_buffer.append(processed.copy())
+                with self._audio_lock:
+                    self._audio_buffer.append(processed.copy())
                 self._emit_audio_level(processed)
+
+                if self._check_utterance_timeout():
+                    self._in_speech = False
+                    self._set_state(PipelineState.VERIFYING)
+                    self._executor.submit(self._handle_speech_segment)
         else:
             if self._in_speech:
                 if self.ptt_active:
@@ -288,22 +301,23 @@ class VoicePipeline:
                 if self._verbose:
                     print(t("vad.speech_end", duration=duration, n=len(self._audio_buffer)))
                 self._set_state(PipelineState.VERIFYING)
-                threading.Thread(
-                    target=self._handle_speech_segment,
-                    daemon=True,
-                ).start()
+                self._executor.submit(self._handle_speech_segment)
             else:
                 self._ring_buffer.append(processed.copy())
                 if len(self._ring_buffer) > self._ring_buffer_max_frames:
                     self._ring_buffer.pop(0)
 
-    def _handle_speech_segment(self):
-        if not self._audio_buffer:
-            self._set_state(PipelineState.IDLE)
-            return
+    def _check_utterance_timeout(self) -> bool:
+        max_sec = self.config.voice.get("max_utterance_seconds", 15)
+        return time.time() - self._speech_start_time > max_sec
 
-        full_audio = np.concatenate(self._audio_buffer)
-        self._audio_buffer.clear()
+    def _handle_speech_segment(self):
+        with self._audio_lock:
+            if not self._audio_buffer:
+                self._set_state(PipelineState.IDLE)
+                return
+            full_audio = np.concatenate(self._audio_buffer)
+            self._audio_buffer.clear()
 
         sr = self.config.general["sample_rate"]
         if len(full_audio) < sr * 0.3:
@@ -361,7 +375,7 @@ class VoicePipeline:
             ai_cmd = self._ai_matcher.match(text)
             if ai_cmd is not None:
                 cmd = ai_cmd
-                param = None
+                param = text if cmd.capture_param else None
         if cmd:
             if self._verbose:
                 print(t("cmd.matched", cmd_id=cmd.id, description=cmd.description))
@@ -419,6 +433,7 @@ class VoicePipeline:
 
         logger.info("Stopping voice pipeline...")
         self._running = False
+        self._executor.shutdown(wait=False)
         self.capture.stop()
         self.asr_engine.unload()
         self.vad.reset()
@@ -449,7 +464,8 @@ class VoicePipeline:
 
     def _ptt_pressed(self):
         self.ptt_active = True
-        self._audio_buffer = []
+        with self._audio_lock:
+            self._audio_buffer = []
         self._in_speech = True
         self._speech_start_time = time.time()
         self._set_state(PipelineState.LISTENING)
@@ -458,17 +474,16 @@ class VoicePipeline:
         logger.debug("PTT: listening started")
 
     def _ptt_released(self):
-        self.ptt_active = False
-        self._in_speech = False
-        duration = time.time() - self._speech_start_time
-        if self._audio_buffer:
+        with self._audio_lock:
+            self.ptt_active = False
+            self._in_speech = False
+            duration = time.time() - self._speech_start_time
+            has_audio = bool(self._audio_buffer)
+        if has_audio:
             if self._verbose:
                 print(t("ptt.released", duration=duration))
             self._set_state(PipelineState.VERIFYING)
-            threading.Thread(
-                target=self._handle_speech_segment,
-                daemon=True,
-            ).start()
+            self._executor.submit(self._handle_speech_segment)
         else:
             if self._verbose:
                 print(t("ptt.no_audio"))
