@@ -15,8 +15,6 @@
 
 A voice-controlled classroom assistant for teachers. Speak naturally to control slides, screens, volume, and applications — hands-free.
 
-> **MVP** — built for classroom use on Windows (4 GB RAM, low-end CPU). Supports offline ASR via SenseVoice or Vosk, and speaker verification to ensure only the enrolled teacher's voice triggers commands.
-
 ## Features
 
 - **Voice Activity Detection** — Silero VAD ONNX with configurable sensitivity, speech/silence duration, and a ring buffer that preserves ~1 s of audio history to avoid cutting off sentence starts
