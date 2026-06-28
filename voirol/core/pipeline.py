@@ -19,7 +19,7 @@ from voirol.command.actions import (
     esc,
     mute,
     next_page,
-    open_file_dialog,
+    open_file_action,
     open_url,
     open_whiteboard,
     prev_page,
@@ -165,12 +165,17 @@ class VoicePipeline:
         else:
             logger.info("AI command matcher disabled")
 
-        from voirol.command.actions import set_default_browser, set_search_engine
+        from voirol.command.actions import set_default_browser, set_search_engine, set_file_search_dirs
         browser_cfg = config.browser
         set_default_browser(browser_cfg.get("default", "edge"))
         se = browser_cfg.get("search_engine", "")
         if se:
             set_search_engine(se)
+
+        file_cfg = config.file
+        dirs = file_cfg.get("search_dirs")
+        if dirs:
+            set_file_search_dirs(dirs)
 
         teacher_name = config.teacher.get("current_teacher", "")
         if teacher_name:
@@ -188,7 +193,7 @@ class VoicePipeline:
         reg.register(Command("white_screen", ["白屏", "白板", "白屏显示", "白板显示"], "白屏", white_screen))
         reg.register(Command("open_whiteboard", ["打开白板", "启动白板", "打开画板", "启动画板"], "打开白板", open_whiteboard))
         reg.register(Command("open_browser", ["打开浏览器", "启动浏览器", "打开网页", "启动网页", "打开网址", "访问", "打开", "进入"], "打开浏览器", open_url, capture_param=True))
-        reg.register(Command("open_file", ["打开文件", "打开", "选择文件"], "打开文件", open_file_dialog))
+        reg.register(Command("open_file", ["打开文件", "选择文件"], "打开文件", open_file_action, capture_param=True))
         from voirol.command.actions import volume_up as _vu, volume_down as _vd, fullscreen as _fs
 
         reg.register(Command("volume_up", ["调高音量", "声音大点", "大声点", "加大音量", "增大音量", "音量加"], "调高音量", _vu))

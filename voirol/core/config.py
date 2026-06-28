@@ -88,6 +88,9 @@ class Config:
         "default": "edge",
         "search_engine": "https://www.baidu.com/s?wd={}",
     })
+    file: dict = field(default_factory=lambda: {
+        "search_dirs": ["~/Desktop", "~/Documents", "~/Downloads"],
+    })
     logging: dict = field(default_factory=lambda: {
         "level": "INFO",
         "file": "",

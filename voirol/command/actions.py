@@ -1,3 +1,5 @@
+import glob
+import os
 import re
 import subprocess
 import time
@@ -62,6 +64,32 @@ DEFAULT_SEARCH_ENGINES = {
 
 _selected_browser = "edge"
 _selected_search_engine = None
+_selected_file_search_dirs = None
+
+APP_MAP = {
+    "记事本": "notepad", "notepad": "notepad",
+    "计算器": "calc", "calc": "calc",
+    "画图": "mspaint", "mspaint": "mspaint",
+    "命令提示符": "cmd", "cmd": "cmd", "命令行": "cmd",
+    "任务管理器": "taskmgr", "taskmgr": "taskmgr",
+    "控制面板": "control", "control": "control",
+    "资源管理器": "explorer", "explorer": "explorer",
+    "注册表": "regedit", "regedit": "regedit",
+    "powershell": "powershell", "PowerShell": "powershell",
+    "设置": "ms-settings:", "settings": "ms-settings:",
+}
+
+FILE_SEARCH_DIRS = [
+    os.path.expanduser("~/Desktop"),
+    os.path.expanduser("~/Documents"),
+    os.path.expanduser("~/Downloads"),
+    os.getcwd(),
+]
+
+
+def set_file_search_dirs(dirs: list[str]):
+    global _selected_file_search_dirs
+    _selected_file_search_dirs = [os.path.expanduser(d) for d in dirs]
 
 
 def set_default_browser(browser: str):
@@ -195,6 +223,70 @@ def open_whiteboard():
         logger.info("Action: open_whiteboard")
     except Exception as e:
         logger.error(f"Failed to open whiteboard: {e}")
+
+
+def open_file_action(param: str = ""):
+    if not param:
+        _open_file_dialog_native()
+        return
+
+    param = param.strip()
+
+    app = APP_MAP.get(param)
+    if app:
+        try:
+            if app.startswith("ms-"):
+                subprocess.Popen(["start", app], shell=True)
+            else:
+                subprocess.Popen(app)
+            logger.info(f"Action: open_app -> {app}")
+            return
+        except Exception as e:
+            logger.warning(f"Failed to launch app '{param}': {e}")
+
+    if os.path.isabs(param) and os.path.exists(param):
+        try:
+            os.startfile(param)
+            logger.info(f"Action: open_file -> {param}")
+            return
+        except Exception as e:
+            logger.warning(f"Failed to open path '{param}': {e}")
+
+    dirs = _selected_file_search_dirs or FILE_SEARCH_DIRS
+    for search_dir in dirs:
+        if not os.path.isdir(search_dir):
+            continue
+        pattern = os.path.join(search_dir, "**", param)
+        matches = glob.glob(pattern, recursive=True)
+        if matches:
+            try:
+                os.startfile(matches[0])
+                logger.info(f"Action: open_file -> {matches[0]}")
+                return
+            except Exception as e:
+                logger.warning(f"Failed to open '{matches[0]}': {e}")
+
+    logger.warning(f"Action: open_file -> '{param}' not found")
+    _open_file_dialog_native()
+
+
+def _open_file_dialog_native():
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        path = filedialog.askopenfilename(parent=root)
+        root.destroy()
+        if path:
+            os.startfile(path)
+            logger.info(f"Action: open_file_dialog -> {path}")
+        else:
+            logger.info("Action: open_file_dialog -> cancelled")
+    except Exception as e:
+        logger.warning(f"Native file dialog failed: {e}, falling back to Ctrl+O")
+        pyautogui.hotkey("ctrl", "o")
 
 
 def open_file_dialog():
