@@ -84,6 +84,10 @@ class Config:
         "timeout": 10,
         "system_prompt": "",
     })
+    browser: dict = field(default_factory=lambda: {
+        "default": "edge",
+        "search_engine": "https://www.baidu.com/s?wd=%s",
+    })
     logging: dict = field(default_factory=lambda: {
         "level": "INFO",
         "file": "",

@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<title>Verifying - USTC Mirrors</title>
+		<style>
+body {
+	font-family: sans-serif;
+	background-color: #f7f7f7;
+	color: #333;
+	text-align: center;
+	padding: 50px;
+}
+h1 {
+	font-size: 50px;
+	color: #273e67;
+}
+p {
+	font-size: 20px;
+}
+.footer {
+	margin-top: 30px;
+	font-size: 14px;
+	color: #aaa;
+}
+		</style>
+	</head>
+	<body>
+		<h1>Verifying your browser</h1>
+		<p>Additional verification is required for this file you requested.</p>
+		<p>This page requires JavaScript. Please wait for a few seconds.</p>
+		<div class="footer">
+			<p>Your IP address is 113.240.180.102</p>
+		</div>
+		<script>
+			document.cookie = "addr=113.240.180.102; max-age=300";
+			setTimeout(function () {
+				location.reload();
+			}, 2000);
+		</script>
+	</body>
+</html>
+

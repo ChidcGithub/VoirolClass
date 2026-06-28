@@ -19,8 +19,8 @@ from voirol.command.actions import (
     esc,
     mute,
     next_page,
-    open_browser,
     open_file_dialog,
+    open_url,
     open_whiteboard,
     prev_page,
     space,
@@ -165,6 +165,13 @@ class VoicePipeline:
         else:
             logger.info("AI command matcher disabled")
 
+        from voirol.command.actions import set_default_browser, set_search_engine
+        browser_cfg = config.browser
+        set_default_browser(browser_cfg.get("default", "edge"))
+        se = browser_cfg.get("search_engine", "")
+        if se:
+            set_search_engine(se)
+
         teacher_name = config.teacher.get("current_teacher", "")
         if teacher_name:
             profile = self.enrollment.get_profile(teacher_name)
@@ -180,7 +187,7 @@ class VoicePipeline:
         reg.register(Command("black_screen", ["黑屏", "关屏幕", "关闭显示", "黑屏显示"], "黑屏", black_screen))
         reg.register(Command("white_screen", ["白屏", "白板", "白屏显示", "白板显示"], "白屏", white_screen))
         reg.register(Command("open_whiteboard", ["打开白板", "启动白板", "打开画板", "启动画板"], "打开白板", open_whiteboard))
-        reg.register(Command("open_browser", ["打开浏览器", "启动浏览器", "打开网页", "启动网页"], "打开浏览器", open_browser))
+        reg.register(Command("open_browser", ["打开浏览器", "启动浏览器", "打开网页", "启动网页", "打开网址", "访问", "打开", "进入"], "打开浏览器", open_url, capture_param=True))
         reg.register(Command("open_file", ["打开文件", "打开", "选择文件"], "打开文件", open_file_dialog))
         from voirol.command.actions import volume_up as _vu, volume_down as _vd, fullscreen as _fs
 
@@ -323,16 +330,20 @@ class VoicePipeline:
             self._set_state(PipelineState.IDLE)
             return
 
-        cmd = self.matcher.match(text)
+        cmd, param = self.matcher.match_with_param(text)
         if cmd is None and self._ai_matcher is not None:
             ai_cmd = self._ai_matcher.match(text)
             if ai_cmd is not None:
                 cmd = ai_cmd
+                param = None
         if cmd:
             if self._verbose:
                 print(t("cmd.matched", cmd_id=cmd.id, description=cmd.description))
             try:
-                cmd.action()
+                if cmd.capture_param:
+                    cmd.action(param or "")
+                else:
+                    cmd.action()
                 for cb in self._command_callbacks:
                     try:
                         cb(cmd.id)

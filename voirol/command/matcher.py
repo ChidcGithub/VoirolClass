@@ -27,6 +27,26 @@ class CommandMatcher:
 
         return self._fuzzy_match(text)
 
+    def match_with_param(self, text: str) -> tuple[Command | None, str | None]:
+        cmd = self.match(text)
+        if cmd is None or not cmd.capture_param:
+            return cmd, None
+        kw = self._find_matched_keyword(cmd, text.strip().lower())
+        if kw is None:
+            return cmd, None
+        idx = text.lower().index(kw)
+        param = text[idx + len(kw):].strip()
+        return cmd, param or None
+
+    def _find_matched_keyword(self, cmd: Command, text: str) -> str | None:
+        best_kw = None
+        best_len = 0
+        for kw in cmd.keywords:
+            if kw.lower() in text and len(kw) > best_len:
+                best_len = len(kw)
+                best_kw = kw
+        return best_kw
+
     def _exact_match(self, text: str) -> Command | None:
         for cmd in self.registry.get_all():
             for keyword in cmd.keywords:

@@ -7,7 +7,8 @@ class Command:
     id: str
     keywords: list[str]
     description: str
-    action: Callable[[], None]
+    action: Callable[..., None]
+    capture_param: bool = False
 
 
 @dataclass
