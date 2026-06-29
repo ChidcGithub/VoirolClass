@@ -56,7 +56,6 @@ class Config:
     })
     hotkey: dict = field(default_factory=lambda: {
         "push_to_talk": "ctrl+alt+v",
-        "toggle_mute": "ctrl+alt+m",
         "open_settings": "ctrl+alt+s",
     })
     ui: dict = field(default_factory=lambda: {

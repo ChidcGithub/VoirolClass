@@ -41,7 +41,6 @@ fuzzy_threshold = 0.8
 
 [hotkey]
 push_to_talk = "ctrl+alt+v"
-toggle_mute = "ctrl+alt+m"
 open_settings = "ctrl+alt+s"
 
 [ui]

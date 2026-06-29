@@ -14,47 +14,35 @@ def create_tray_icon(
     pipeline: VoicePipeline,
 ) -> tuple[QSystemTrayIcon, QMenu]:
     tray = QSystemTrayIcon()
-
-    icon = _create_icon()
+    icon = QIcon("assets/img/icon.png")
     tray.setIcon(icon)
     tray.setToolTip(t("app.tooltip"))
 
     menu = _create_menu(app, pipeline)
     tray.setContextMenu(menu)
-
     tray.show()
     return tray, menu
-
-
-def _create_icon():
-    return QIcon("assets/img/icon.png")
 
 
 def _create_menu(app: QApplication, pipeline: VoicePipeline):
     menu = QMenu()
 
-    active = pipeline.verifier.get_active_name()
-    status_key = "status.teacher" if active else "status.idle"
-    menu._status_action = QAction(t(status_key, active=active or ""))
+    menu._status_action = QAction(t("status.running" if pipeline.is_running else "status.stopped"))
     menu._status_action.setEnabled(False)
     menu.addAction(menu._status_action)
 
     menu.addSeparator()
 
     menu._settings_action = QAction(t("settings.menu"))
-    menu._settings_action.triggered.connect(
-        lambda: _show_settings_dialog(pipeline)
-    )
+    menu._settings_action.triggered.connect(lambda: _show_settings_dialog(pipeline))
     menu.addAction(menu._settings_action)
 
     menu.addSeparator()
 
-    menu._mute_action = QAction(t("mute.on"))
-    menu._mute_action.setCheckable(True)
-    menu._mute_action.triggered.connect(
-        lambda checked: _toggle_mute(pipeline, menu._mute_action)
-    )
-    menu.addAction(menu._mute_action)
+    running = pipeline.is_running
+    menu._service_action = QAction(t("service.stop") if running else t("service.start"))
+    menu._service_action.triggered.connect(lambda: _toggle_service(pipeline, menu))
+    menu.addAction(menu._service_action)
 
     menu.addSeparator()
 
@@ -65,11 +53,17 @@ def _create_menu(app: QApplication, pipeline: VoicePipeline):
     return menu
 
 
-def _toggle_mute(pipeline: VoicePipeline, action: QAction):
-    pipeline.muted = not pipeline.muted
-    if pipeline.muted:
-        action.setText(t("mute.off"))
-        logger.info("Muted")
+def _toggle_service(pipeline: VoicePipeline, menu: QMenu):
+    if pipeline.is_running:
+        pipeline.stop()
+        menu._service_action.setText(t("service.start"))
+        menu._status_action.setText(t("status.stopped"))
+        logger.info("Service stopped")
     else:
-        action.setText(t("mute.on"))
-        logger.info("Unmuted")
+        try:
+            pipeline.start()
+            menu._service_action.setText(t("service.stop"))
+            menu._status_action.setText(t("status.running"))
+            logger.info("Service started")
+        except Exception as e:
+            logger.error(f"Failed to start service: {e}")

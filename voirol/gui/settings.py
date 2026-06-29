@@ -212,17 +212,6 @@ class SettingsDialog(QDialog):
         self._mu_spin.valueChanged.connect(self._on_max_utterance_changed)
         layout.addWidget(self._mu_spin)
 
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setFrameShadow(QFrame.Shadow.Sunken)
-        line.setStyleSheet("border: none; border-top: 1px solid #555;")
-        layout.addWidget(line)
-
-        self._mute_cb = QCheckBox(t("mute.mic"))
-        self._mute_cb.setChecked(self.pipeline.muted)
-        self._mute_cb.toggled.connect(self._on_mute_toggled)
-        layout.addWidget(self._mute_cb)
-
         layout.addStretch()
 
         self.tabs.addTab(tab, t("tab.voice"))
@@ -253,6 +242,35 @@ class SettingsDialog(QDialog):
         if idx >= 0:
             self._asr_engine_combo.setCurrentIndex(idx)
         self._asr_engine_combo.blockSignals(False)
+
+    def _service_btn_style(self, running: bool) -> str:
+        cfg_theme = self.pipeline.config.ui.get("theme", "system")
+        if cfg_theme == "system":
+            from voirol.gui.theme import detect_system_theme
+            t_val = detect_system_theme().value
+        else:
+            t_val = cfg_theme
+
+        if t_val == "dark":
+            bg = "#555" if running else "#e0e0e0"
+            fg = "#e0e0e0" if running else "#333"
+            return f"QPushButton {{ background: {bg}; color: {fg}; font-weight: bold; padding: 8px; border-radius: 5px; }}"
+        return "QPushButton { font-weight: bold; padding: 8px; }"
+
+    def _on_service_toggle(self):
+        if self.pipeline.is_running:
+            self.pipeline.stop()
+            self._service_btn.setText(t("service.start"))
+            self._service_btn.setStyleSheet(self._service_btn_style(False))
+            logger.info("Service stopped from settings")
+        else:
+            try:
+                self.pipeline.start()
+                self._service_btn.setText(t("service.stop"))
+                self._service_btn.setStyleSheet(self._service_btn_style(True))
+                logger.info("Service started from settings")
+            except Exception as e:
+                QMessageBox.warning(self, t("error.title"), str(e))
 
     def _on_asr_mode_changed(self):
         if self._asr_mode_combo.currentData() == "offline":
@@ -322,10 +340,6 @@ class SettingsDialog(QDialog):
         self.pipeline.config.asr["engine"] = new_engine
         save_config(self.pipeline.config)
         QMessageBox.information(self, t("prompt.title"), t("asr.restart_hint"))
-
-    def _on_mute_toggled(self, checked: bool):
-        self.pipeline.muted = checked
-        logger.info(f"{'Muted' if checked else 'Unmuted'}")
 
     def _refresh_teacher_list(self):
         self._teacher_list.clear()
@@ -566,6 +580,14 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(8)
+
+        running = self.pipeline.is_running
+        self._service_btn = QPushButton(t("service.stop") if running else t("service.start"))
+        self._service_btn.setStyleSheet(self._service_btn_style(running))
+        self._service_btn.clicked.connect(self._on_service_toggle)
+        layout.addWidget(self._service_btn)
+
+        layout.addSpacing(12)
 
         lang_label = QLabel(t("general.language"))
         layout.addWidget(lang_label)

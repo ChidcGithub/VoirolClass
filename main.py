@@ -7,7 +7,7 @@ from voirol.core.config import load_config
 from voirol.core.pipeline import VoicePipeline
 from voirol.gui.theme import Theme, apply_theme, detect_system_theme
 from voirol.gui.tray import create_tray_icon
-from voirol.utils.i18n import state_name, t
+from voirol.utils.i18n import t
 from voirol.utils.logger import get_logger, setup_logger
 from voirol.voice.model_download import check_model_status
 
@@ -63,9 +63,8 @@ def main():
 
     sys.excepthook = _crash_handler
 
-    from voirol.gui.splash import StartupSplash
-    splash = StartupSplash()
-    splash.show()
+    from voirol.gui.splash_spawn import SplashProcess
+    splash = SplashProcess()
     splash.set_status(t("splash.starting"))
 
     pipeline = None
@@ -98,20 +97,20 @@ def main():
                 print(t("app.startup_no_teacher"))
                 print(t("app.startup_hint"))
 
-        pipeline.start()
+        if check_model_status("silero_vad") != "missing":
+            pipeline.start()
+        else:
+            logger.info("VAD model not found — service not started. Start manually after download.")
 
         splash.set_status(t("splash.hotkeys"))
 
         ptt_key = config.hotkey.get("push_to_talk", "ctrl+alt+v")
-        pipeline.setup_hotkeys(ptt_key)
+        if pipeline.is_running:
+            pipeline.setup_hotkeys(ptt_key)
 
         splash.set_status(t("splash.interface"))
 
         tray, tray_menu = create_tray_icon(app, pipeline)
-
-        def update_tray_state(state):
-            tray_menu._status_action.setText(state_name(state.value))
-        pipeline.on_state_change(update_tray_state)
 
         splash.set_status(t("splash.ready"))
 

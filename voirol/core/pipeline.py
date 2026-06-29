@@ -200,6 +200,10 @@ class VoicePipeline:
                 self.verifier.set_profile(profile)
                 logger.info(f"Auto-loaded teacher: {teacher_name}")
 
+    @property
+    def is_running(self) -> bool:
+        return self._running
+
     def _setup_commands(self):
         reg = CommandRegistry()
 
