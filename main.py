@@ -25,7 +25,10 @@ def main():
     config = load_config()
 
     setup_logger(
-        log_dir="logs",
+        log_dir=os.path.join(
+            os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
+            "VoirolClass", "logs",
+        ),
         level=config.logging.get("level", "INFO"),
     )
 

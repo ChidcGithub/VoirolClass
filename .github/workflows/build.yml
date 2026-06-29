@@ -28,7 +28,7 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      - name: Build executable with PyInstaller
+      - name: Build onefile EXE (standalone)
         run: |
           pyinstaller --onefile --windowed `
             --name VoirolClass `
@@ -37,8 +37,20 @@ jobs:
             --collect-all PyQt6 `
             main.py
 
-      - name: Verify executable exists
-        run: Test-Path dist/VoirolClass.exe
+      - name: Build onedir (for installer)
+        run: |
+          Remove-Item -Recurse -Force dist/VoirolClass -ErrorAction SilentlyContinue
+          pyinstaller --onedir --windowed `
+            --name VoirolClass `
+            --icon assets/img/icon.png `
+            --hidden-import keyboard `
+            --collect-all PyQt6 `
+            main.py
+
+      - name: Verify executables exist
+        run: |
+          Test-Path dist/VoirolClass.exe
+          Test-Path dist/VoirolClass/VoirolClass.exe
 
       - name: Install NSIS
         run: choco install nsis -y

@@ -31,7 +31,7 @@ RequestExecutionLevel admin
 
 Section "Install"
   SetOutPath "$INSTDIR"
-  File "dist\VoirolClass.exe"
+  File /r "dist\VoirolClass\*.*"
 
   CreateDirectory "$SMPROGRAMS\${PRODUCT_NAME}"
   CreateShortCut "$SMPROGRAMS\${PRODUCT_NAME}\VoirolClass.lnk" "$INSTDIR\VoirolClass.exe"
@@ -51,9 +51,7 @@ Section "Install"
 SectionEnd
 
 Section "Uninstall"
-  Delete "$INSTDIR\VoirolClass.exe"
-  Delete "$INSTDIR\Uninstall.exe"
-  RMDir "$INSTDIR"
+  RMDir /r "$INSTDIR"
 
   Delete "$SMPROGRAMS\${PRODUCT_NAME}\VoirolClass.lnk"
   RMDir "$SMPROGRAMS\${PRODUCT_NAME}"
