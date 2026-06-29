@@ -1,3 +1,4 @@
+import multiprocessing
 import sys
 import traceback
 
@@ -15,6 +16,7 @@ logger = get_logger("main")
 
 
 def main():
+    multiprocessing.freeze_support()
     print(f"""
     ╔══════════════════════════════════════╗
     ║         {t('app.banner_line1')}           ║
