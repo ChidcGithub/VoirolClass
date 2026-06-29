@@ -35,6 +35,8 @@ jobs:
             --icon assets/img/icon.png `
             --hidden-import keyboard `
             --collect-all PyQt6 `
+            --add-data "assets;assets" `
+            --add-data "fonts;fonts" `
             main.py
 
       - name: Build onedir (for installer)
@@ -45,6 +47,8 @@ jobs:
             --icon assets/img/icon.png `
             --hidden-import keyboard `
             --collect-all PyQt6 `
+            --add-data "assets;assets" `
+            --add-data "fonts;fonts" `
             main.py
 
       - name: Verify executables exist

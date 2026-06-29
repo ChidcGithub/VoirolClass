@@ -18,6 +18,11 @@ logger = get_logger("main")
 
 def main():
     multiprocessing.freeze_support()
+
+    if len(sys.argv) >= 2 and sys.argv[1] == "--splash":
+        _run_splash(int(sys.argv[2]))
+        return
+
     print(f"""
     ╔══════════════════════════════════════╗
     ║         {t('app.banner_line1')}           ║
@@ -46,13 +51,13 @@ def main():
     from PyQt6.QtGui import QFont, QFontDatabase, QSurfaceFormat
     from PyQt6.QtWidgets import QApplication
 
-    fmt = QSurfaceFormat()
-    fmt.setAlphaBufferSize(8)
-    QSurfaceFormat.setDefaultFormat(fmt)
-
     app = QApplication(sys.argv)
     app.setApplicationName("VoirolClass")
     app.setQuitOnLastWindowClosed(False)
+
+    fmt = QSurfaceFormat()
+    fmt.setAlphaBufferSize(8)
+    QSurfaceFormat.setDefaultFormat(fmt)
 
     def _crash_handler(exc_type, exc_value, exc_tb):
         if issubclass(exc_type, KeyboardInterrupt):
@@ -142,6 +147,52 @@ def main():
     if pipeline:
         pipeline.stop()
     sys.exit(exit_code)
+
+
+def _run_splash(port: int):
+    from multiprocessing.connection import Client
+    from PyQt6.QtCore import QTimer
+    from PyQt6.QtGui import QSurfaceFormat
+    from PyQt6.QtWidgets import QApplication
+
+    app = QApplication(sys.argv)
+
+    fmt = QSurfaceFormat()
+    fmt.setAlphaBufferSize(8)
+    QSurfaceFormat.setDefaultFormat(fmt)
+
+    from voirol.gui.splash import StartupSplash
+    splash = StartupSplash()
+    splash.show()
+
+    conn = Client(("localhost", port), authkey=b"voirol")
+    close_pending = False
+
+    def poll():
+        nonlocal close_pending
+        if conn.poll(0.01):
+            try:
+                msg = conn.recv()
+                tp = msg.get("type")
+                if tp == "status":
+                    splash.set_status(msg.get("text", ""))
+                elif tp == "error":
+                    splash.set_error(msg.get("text", ""))
+                elif tp == "close":
+                    delay = msg.get("delay", 0)
+                    if delay > 0 and not close_pending:
+                        close_pending = True
+                        QTimer.singleShot(delay, app.quit)
+                    elif delay == 0:
+                        app.quit()
+            except (EOFError, ConnectionResetError):
+                app.quit()
+
+    timer = QTimer()
+    timer.timeout.connect(poll)
+    timer.start(50)
+
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":
