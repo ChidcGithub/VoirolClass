@@ -185,7 +185,7 @@ QCheckBox::indicator {{
 QCheckBox::indicator:checked {{
     background-color: #4a90d9;
     border-color: #4a90d9;
-    image: url(assets/img/checkmark.svg);
+    image: url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNiAxNiI+CiAgPHBhdGggZmlsbD0iI2ZmZmZmZiIgZD0iTTYgMTEuOUwyLjUgOC40IDMuOSA3IDYgOS4xIDEyLjEgM2wxLjQgMS40eiIvPgo8L3N2Zz4K);
 }}
 QLabel {{
     color: #e0e0e0;
@@ -372,7 +372,7 @@ QCheckBox::indicator {{
 QCheckBox::indicator:checked {{
     background-color: #4a90d9;
     border-color: #4a90d9;
-    image: url(assets/img/checkmark.svg);
+    image: url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNiAxNiI+CiAgPHBhdGggZmlsbD0iI2ZmZmZmZiIgZD0iTTYgMTEuOUwyLjUgOC40IDMuOSA3IDYgOS4xIDEyLjEgM2wxLjQgMS40eiIvPgo8L3N2Zz4K);
 }}
 QLabel {{
     color: #333333;

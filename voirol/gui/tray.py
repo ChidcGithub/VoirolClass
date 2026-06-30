@@ -5,6 +5,7 @@ from voirol.core.pipeline import VoicePipeline
 from voirol.gui.settings import _show_settings_dialog
 from voirol.utils.i18n import t
 from voirol.utils.logger import get_logger
+from voirol.utils.resources import resource_path
 
 logger = get_logger("gui.tray")
 
@@ -14,7 +15,7 @@ def create_tray_icon(
     pipeline: VoicePipeline,
 ) -> tuple[QSystemTrayIcon, QMenu]:
     tray = QSystemTrayIcon()
-    icon = QIcon("assets/img/icon.png")
+    icon = QIcon(resource_path("assets/img/icon.png"))
     tray.setIcon(icon)
     tray.setToolTip(t("app.tooltip"))
 

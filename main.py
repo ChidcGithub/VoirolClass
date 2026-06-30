@@ -11,6 +11,7 @@ from voirol.gui.theme import Theme, apply_theme, detect_system_theme
 from voirol.gui.tray import create_tray_icon
 from voirol.utils.i18n import t
 from voirol.utils.logger import get_logger, setup_logger
+from voirol.utils.resources import resource_path
 from voirol.voice.model_download import check_model_status
 
 logger = get_logger("main")
@@ -87,7 +88,7 @@ def main():
             theme = Theme(cfg_theme)
         apply_theme(app, theme, config.ui.get("border_radius", 5))
 
-        font_id = QFontDatabase.addApplicationFont("fonts/GSF.ttf")
+        font_id = QFontDatabase.addApplicationFont(resource_path("fonts/GSF.ttf"))
         if font_id >= 0:
             families = QFontDatabase.applicationFontFamilies(font_id)
             if families:

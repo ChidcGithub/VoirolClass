@@ -35,6 +35,7 @@ from voirol.gui.theme import Theme, apply_theme, detect_system_theme
 from voirol.voice import model_download as md
 from voirol.utils.i18n import get_language, set_language, t
 from voirol.utils.logger import get_logger
+from voirol.utils.resources import resource_path
 
 logger = get_logger("gui.settings")
 
@@ -49,7 +50,7 @@ class SettingsDialog(QDialog):
         super().__init__()
         self.pipeline = pipeline
         self.setWindowTitle(t("settings.title"))
-        self.setWindowIcon(QIcon("assets/img/icon.png"))
+        self.setWindowIcon(QIcon(resource_path("assets/img/icon.png")))
 
         self.setMinimumWidth(560)
         self.setMinimumHeight(500)
