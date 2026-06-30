@@ -9,7 +9,6 @@ venv/
 data/
 !data/.gitkeep
 models/sensevoice/
-models/vosk/
 models/silero_vad.onnx
 .vscode/
 .idea/

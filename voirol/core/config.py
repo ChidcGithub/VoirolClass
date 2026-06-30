@@ -35,9 +35,7 @@ class Config:
         "max_utterance_seconds": 15,
     })
     asr: dict = field(default_factory=lambda: {
-        "engine": "vosk",
-        "vosk_model_path": "models/vosk_zh",
-        "vosk_language": "zh-cn",
+        "engine": "sensevoice",
         "sensevoice_model_path": "models/sensevoice",
         "sensevoice_num_threads": 2,
         "sensevoice_language": "zh",

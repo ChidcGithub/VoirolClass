@@ -19,9 +19,7 @@ ring_buffer_seconds = 2.0
 max_utterance_seconds = 15
 
 [asr]
-engine = "vosk"
-vosk_model_path = "models/vosk_zh"
-vosk_language = "zh-cn"
+engine = "sensevoice"
 sensevoice_model_path = "models/sensevoice"
 sensevoice_num_threads = 2
 sensevoice_language = "zh"

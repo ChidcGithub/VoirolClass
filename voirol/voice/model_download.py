@@ -1,7 +1,6 @@
 import os
 import shutil
 import tarfile
-import zipfile
 from dataclasses import dataclass, field
 
 import requests
@@ -13,7 +12,7 @@ from voirol.utils.logger import get_logger
 logger = get_logger("voice.model_download")
 
 
-DOWNLOAD_ORDER = ["silero_vad", "vosk_zh", "vosk_en", "sensevoice"]
+DOWNLOAD_ORDER = ["silero_vad", "sensevoice"]
 QUEUE_FILE = "data/.download_queue"
 
 
@@ -59,32 +58,6 @@ MODELS: dict[str, ModelEntry] = {
         dest_dir="models",
         filename="sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09.tar.bz2",
         expected_files=["models/sensevoice/model.int8.onnx", "models/sensevoice/tokens.txt"],
-        extract=True,
-    ),
-    "vosk_zh": ModelEntry(
-        id="vosk_zh",
-        name="Vosk (Chinese)",
-        size="42 MB",
-        urls=[
-            "https://mirrors.ustc.edu.cn/vosk-models/vosk-model-small-cn-0.22.zip",
-            "https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip",
-        ],
-        dest_dir="models",
-        filename="vosk_zh.zip",
-        expected_files=["models/vosk_zh/am/final.mdl"],
-        extract=True,
-    ),
-    "vosk_en": ModelEntry(
-        id="vosk_en",
-        name="Vosk (English)",
-        size="42 MB",
-        urls=[
-            "https://mirrors.ustc.edu.cn/vosk-models/vosk-model-small-en-us-0.15.zip",
-            "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip",
-        ],
-        dest_dir="models",
-        filename="vosk_en.zip",
-        expected_files=["models/vosk_en/am/final.mdl"],
         extract=True,
     ),
     "campplus": ModelEntry(
@@ -136,9 +109,7 @@ def download_model(model_id: str, mirror_url: str = "", progress_callback=None) 
         os.makedirs(dest, exist_ok=True)
         filepath = os.path.join(dest, entry.filename)
 
-        archive_type = None
-        if entry.extract:
-            archive_type = "tar" if entry.id == "sensevoice" else "zip"
+        archive_type = "tar"
 
         download_file(
             url=dl_url,
@@ -172,13 +143,10 @@ def _extract_model(entry: ModelEntry, filepath: str, progress_callback=None):
 
     if not os.path.exists(filepath):
         raise FileNotFoundError(f"Archive not found: {filepath}")
-    if entry.id == "sensevoice" and not tarfile.is_tarfile(filepath):
+    if not tarfile.is_tarfile(filepath):
         raise ValueError(f"Not a valid tar file: {filepath}")
-    if entry.id.startswith("vosk") and not zipfile.is_zipfile(filepath):
-        raise ValueError(f"Not a valid zip file: {filepath}")
 
-    if entry.id == "sensevoice":
-        extract_dir = os.path.join(base, "_extracted_sv")
+    extract_dir = os.path.join(base, "_extracted_sv")
         if os.path.exists(extract_dir):
             shutil.rmtree(extract_dir)
         os.makedirs(extract_dir, exist_ok=True)
@@ -206,29 +174,6 @@ def _extract_model(entry: ModelEntry, filepath: str, progress_callback=None):
                 shutil.copytree(extract_dir, target)
         shutil.rmtree(extract_dir, ignore_errors=True)
         logger.info(f"SenseVoice extracted to {target}")
-
-    elif entry.id.startswith("vosk"):
-        with zipfile.ZipFile(filepath, "r") as zf:
-            members = zf.infolist()
-            total = len(members)
-            for i, m in enumerate(members):
-                zf.extract(m, base)
-                if progress_callback:
-                    pct = int((i + 1) / total * 90)
-                    progress_callback(pct)
-
-        target = os.path.join(base, entry.id)
-        extracted = [
-            d for d in os.listdir(base)
-            if os.path.isdir(os.path.join(base, d))
-            and d.startswith("vosk-model")
-        ]
-        if extracted:
-            src = os.path.join(base, extracted[0])
-            if os.path.exists(target):
-                shutil.rmtree(target)
-            os.rename(src, target)
-            logger.info(f"Vosk extracted to {target}")
 
     if progress_callback:
         progress_callback(95)

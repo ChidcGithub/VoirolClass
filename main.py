@@ -43,7 +43,7 @@ def main():
 
     logger.info("Starting VoirolClass...")
 
-    missing = [mid for mid in ["silero_vad", "sensevoice", "vosk_zh", "vosk_en"]
+    missing = [mid for mid in ["silero_vad", "sensevoice"]
                if check_model_status(mid) == "missing"]
     if missing:
         logger.warning(f"Models not downloaded: {', '.join(missing)}")

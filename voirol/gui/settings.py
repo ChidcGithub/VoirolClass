@@ -237,7 +237,6 @@ class SettingsDialog(QDialog):
             self._asr_engine_combo.addItem(t("asr.engine_tencent"), "tencent")
         else:
             self._asr_engine_combo.addItem(t("asr.engine_sensevoice"), "sensevoice")
-            self._asr_engine_combo.addItem(t("asr.engine_vosk"), "vosk")
         current_engine = self.pipeline.config.asr.get("engine", "sensevoice")
         idx = self._asr_engine_combo.findData(current_engine)
         if idx >= 0:
@@ -313,9 +312,6 @@ class SettingsDialog(QDialog):
 
     def _check_offline_model(self, engine: str) -> bool:
         mid = {"sensevoice": "sensevoice"}.get(engine)
-        if engine == "vosk":
-            lang = self.pipeline.config.asr.get("vosk_language", "zh-cn")
-            mid = "vosk_en" if lang.startswith("en") else "vosk_zh"
         if mid and md.check_model_status(mid) == md.DownloadState.MISSING:
             name = md.MODELS[mid].name
             msg = QMessageBox(self)
@@ -444,7 +440,7 @@ class SettingsDialog(QDialog):
 
     def _refresh_model_table(self):
         self._model_table.setRowCount(0)
-        model_ids = ["silero_vad", "sensevoice", "vosk_zh", "vosk_en", "campplus"]
+        model_ids = ["silero_vad", "sensevoice", "campplus"]
         for mid in model_ids:
             entry = md.MODELS.get(mid)
             if not entry:

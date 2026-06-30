@@ -9,7 +9,6 @@ import numpy as np
 from voirol.ai.matcher import AIMatcher
 from voirol.ai.openai_engine import OpenAIEngine
 from voirol.asr.engine import ASREngine
-from voirol.asr.vosk_engine import VoskEngine
 from voirol.asr.sensevoice_engine import SenseVoiceEngine
 from voirol.audio.capture import AudioCapture
 from voirol.audio.processor import preprocess
@@ -104,15 +103,8 @@ class VoicePipeline:
         )
 
         asr_cfg = config.asr
-        engine_type = asr_cfg.get("engine", "vosk")
-        if engine_type == "sensevoice":
-            self.asr_engine: ASREngine = SenseVoiceEngine(
-                model_dir=asr_cfg.get("sensevoice_model_path", "models/sensevoice"),
-                num_threads=asr_cfg.get("sensevoice_num_threads", 2),
-                language=asr_cfg.get("sensevoice_language", "zh"),
-                use_itn=asr_cfg.get("sensevoice_use_itn", False),
-            )
-        elif engine_type == "baidu":
+        engine_type = asr_cfg.get("engine", "sensevoice")
+        if engine_type == "baidu":
             from voirol.asr.baidu_engine import BaiduEngine
             self.asr_engine: ASREngine = BaiduEngine(
                 api_key=asr_cfg["baidu_api_key"],
@@ -134,12 +126,11 @@ class VoicePipeline:
                 language=asr_cfg.get("sensevoice_language", "zh"),
             )
         else:
-            vosk_lang = asr_cfg.get("vosk_language", "zh-cn")
-            vosk_suffix = "vosk_en" if vosk_lang.startswith("en") else "vosk_zh"
-            vosk_path = asr_cfg.get("vosk_model_path", f"models/{vosk_suffix}")
-            self.asr_engine: ASREngine = VoskEngine(
-                model_path=vosk_path,
-                language=vosk_lang,
+            self.asr_engine: ASREngine = SenseVoiceEngine(
+                model_dir=asr_cfg.get("sensevoice_model_path", "models/sensevoice"),
+                num_threads=asr_cfg.get("sensevoice_num_threads", 2),
+                language=asr_cfg.get("sensevoice_language", "zh"),
+                use_itn=asr_cfg.get("sensevoice_use_itn", False),
             )
 
         self._setup_commands()

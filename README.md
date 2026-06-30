@@ -26,7 +26,7 @@ No keyboard or mouse required. Just say "next page", "black screen", or "open br
 | Feature | Description |
 |---------|-------------|
 | **Voice Activity Detection** | Silero VAD ONNX with configurable sensitivity, speech/silence duration, and a ring buffer that preserves ~1 s of audio history to avoid cutting off sentence starts |
-| **Dual ASR Engines** | SenseVoiceSmall (pure ONNX Runtime, primary) or Vosk-Kaldi (fallback), both running fully offline |
+| **ASR Engine** | SenseVoiceSmall (pure ONNX Runtime) running fully offline |
 | **Speaker Verification** | CAM++ embedding via `speakeronnx` (192-dim L2-normalized vectors). Each teacher enrolls by reading 3-5 sentences; only their voice passes the similarity threshold |
 | **Command Matching** | Three-tier strategy: exact, keyword (substring), or fuzzy (SequenceMatcher ratio). Falls back through the chain automatically, then to AI semantic matching (DeepSeek/OpenAI) when no keyword matches |
 | **AI Semantic Matching** | Optional DeepSeek/OpenAI integration. Sends transcribed text to a configurable LLM to infer the intended command from natural language |
@@ -52,19 +52,19 @@ Right-click the tray icon → **Settings...** → register a teacher. Start spea
 
 ```
 Microphone ─► AudioCapture ─► SileroVAD ─► SpeakerVerifier ─► ASR ─► CommandMatcher ─► Action
-                                                                         │
-                                                               (SenseVoice / Vosk)
-                                                                         │
-                                                              (fallback)  │
-                                                                         ▼
-                                                                   AIMatcher (AI)
-                                                                  DeepSeek/OpenAI
+                                                                          │
+                                                                   (SenseVoice)
+                                                                          │
+                                                               (fallback)  │
+                                                                          ▼
+                                                                    AIMatcher (AI)
+                                                                   DeepSeek/OpenAI
 ```
 
 1. **AudioCapture** reads 16 kHz PCM blocks from the microphone
 2. **SileroVAD** runs an ONNX neural network on each block, accumulating speech segments
 3. **SpeakerVerifier** extracts a CAM++ embedding and compares it to the enrolled teacher's profile
-4. **ASR** (SenseVoice or Vosk) transcribes the verified speech segment to text
+4. **ASR** (SenseVoice) transcribes the verified speech segment to text
 5. **CommandMatcher** finds the best-matching command (exact → keyword → fuzzy)
 6. **AIMatcher** (optional, configurable) falls back to an LLM (DeepSeek / OpenAI) when no keyword matches, parsing the response as JSON to determine the command
 7. **Action** executes the command — keyboard shortcut, system call, or UI action
@@ -119,7 +119,7 @@ Edit `config.toml` to set language, microphone device, and ASR engine:
 language = "en"         # or "zh"
 
 [asr]
-engine = "sensevoice"   # or "vosk"
+engine = "sensevoice"
 ```
 
 The first run will automatically download the Silero VAD model (`models/silero_vad.onnx`) via mirror links.
@@ -163,7 +163,7 @@ Key settings in `config.toml`:
 | | `silence_duration` | `1.0` | Seconds of silence to end utterance |
 | `[voice]` | `verification_threshold` | `0.45` | Similarity threshold for speaker match |
 | | `model_path` | `campplus-zh-en` | speakeronnx model name |
-| `[asr]` | `engine` | `sensevoice` | `sensevoice`, `vosk`, or `baidu` |
+| `[asr]` | `engine` | `sensevoice` | `sensevoice`, `baidu`, `azure`, or `tencent` |
 | `[commands]` | `match_mode` | `fuzzy` | `exact` / `keyword` / `fuzzy` |
 | | `fuzzy_threshold` | `0.8` | SequenceMatcher ratio |
 | `[hotkey]` | `push_to_talk` | `ctrl+alt+v` | PTT hotkey |
@@ -181,7 +181,7 @@ Key settings in `config.toml`:
 ```
 voirol/
 ├── ai/                   # AI command matcher (DeepSeek/OpenAI)
-├── asr/                  # SenseVoice & Vosk ASR engines
+├── asr/                  # SenseVoice ASR engine
 ├── audio/                # Capture, VAD, preprocessing
 ├── command/              # Command registry, matcher, actions
 ├── core/                 # Config & VoicePipeline
@@ -199,7 +199,7 @@ voirol/
 | GUI | PyQt6 | System tray + settings dialog |
 | Audio capture | sounddevice | Callback-based PCM stream |
 | VAD | Silero VAD ONNX | via onnxruntime |
-| ASR | SenseVoiceSmall ONNX / Vosk | Both offline |
+| ASR | SenseVoiceSmall ONNX | Offline |
 | Speaker verification | speakeronnx | CAM++ model, 192-dim embeddings |
 | Command execution | pyautogui | Keyboard/mouse simulation |
 | AI matching | DeepSeek / OpenAI API | Optional semantic fallback via LLM |
