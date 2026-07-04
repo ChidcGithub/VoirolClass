@@ -13,7 +13,21 @@ from voirol.asr.sensevoice_engine import SenseVoiceEngine
 from voirol.audio.capture import AudioCapture
 from voirol.audio.processor import preprocess
 from voirol.audio.vad import SileroVAD
+from voirol.agent.engine import AgentEngine, set_current_engine
+from voirol.agent.screen import ScreenAnalyzer
+from voirol.agent.skill_registry import SkillRegistry, Skill
+from voirol.agent.mouse import (
+    skill_click, skill_double_click, skill_right_click,
+    skill_drag, skill_scroll, skill_move_mouse,
+)
+from voirol.agent.keyboard import (
+    skill_type_text, skill_press_key, skill_hotkey, skill_press_and_release,
+)
+from voirol.agent.file_ops import (
+    skill_open_app, skill_run_command, skill_read_file, skill_write_file,
+)
 from voirol.command.actions import (
+    agent_execute,
     black_screen,
     enter,
     esc,
@@ -172,7 +186,35 @@ class VoicePipeline:
         else:
             logger.info("AI command matcher disabled")
 
-        from voirol.command.actions import set_default_browser, set_search_engine, set_file_search_dirs
+        self._agent_engine: AgentEngine | None = None
+        agent_cfg = config.agent
+        if agent_cfg.get("enabled") and ai_cfg.get("api_key"):
+            try:
+                self._agent_engine = AgentEngine(
+                    screen_analyzer=ScreenAnalyzer(
+                        ocr_lang=agent_cfg.get("ocr_lang", "chi_sim+eng"),
+                    ),
+                    skill_registry=self._build_agent_skills(),
+                    llm_engine=OpenAIEngine(
+                        api_url=ai_cfg.get("api_url", "https://api.deepseek.com/v1"),
+                        api_key=ai_cfg.get("api_key", ""),
+                        model=ai_cfg.get("model", "deepseek-chat"),
+                    ),
+                    max_steps=agent_cfg.get("max_steps", 30),
+                    temperature=agent_cfg.get("temperature", 0.1),
+                    timeout=agent_cfg.get("timeout", 15),
+                )
+                set_current_engine(self._agent_engine)
+                logger.info("Agent engine enabled")
+            except Exception as e:
+                logger.warning(f"Failed to initialize agent engine: {e}")
+                self._agent_engine = None
+        else:
+            logger.info("Agent engine disabled")
+
+        from voirol.command.actions import set_default_browser, set_search_engine, set_file_search_dirs, set_agent_engine
+        if self._agent_engine is not None:
+            set_agent_engine(self._agent_engine)
         browser_cfg = config.browser
         set_default_browser(browser_cfg.get("default", "edge"))
         se = browser_cfg.get("search_engine", "")
@@ -206,7 +248,7 @@ class VoicePipeline:
         reg.register(Command("open_browser", ["打开浏览器", "启动浏览器", "打开网页", "启动网页", "打开网址", "访问", "进入"], t("cmd.desc.open_browser"), open_url, capture_param=True))
         reg.register(Command("open_file", ["打开文件", "选择文件"], t("cmd.desc.open_file"), open_file_action, capture_param=True))
         reg.register(Command("open", ["打开"], t("cmd.desc.open"), open_router, capture_param=True))
-        from voirol.command.actions import volume_up as _vu, volume_down as _vd, fullscreen as _fs
+        from voirol.command.actions import volume_up as _vu, volume_down as _vd, fullscreen as _fs, agent_execute
 
         reg.register(Command("volume_up", ["调高音量", "声音大点", "大声点", "加大音量", "增大音量", "音量加"], t("cmd.desc.volume_up"), _vu))
         reg.register(Command("volume_down", ["调低音量", "声音小点", "小声点", "减小音量", "降低音量", "音量减"], t("cmd.desc.volume_down"), _vd))
@@ -215,8 +257,47 @@ class VoicePipeline:
         reg.register(Command("esc", ["退出", "取消", "返回", "退出全屏"], t("cmd.desc.esc"), esc))
         reg.register(Command("space", ["暂停", "播放", "继续", "空格"], t("cmd.desc.space"), space))
         reg.register(Command("enter", ["确定", "确认", "回车"], t("cmd.desc.enter"), enter))
+        reg.register(Command("agent", ["电脑操作", "操作电脑", "帮我打开", "帮我找", "帮我搜索", "帮我", "桌面操作", "screen"], t("cmd.desc.agent"), agent_execute, capture_param=True))
 
         self._cmd_registry = reg
+
+    def _build_agent_skills(self) -> SkillRegistry:
+        reg = SkillRegistry()
+        reg.register(Skill("click_element", "Click a UI element by its element_id from the screen observation", {"type": "object", "properties": {"element_id": {"type": "integer"}}, "required": ["element_id"]}, skill_click, resolve_element=True))
+        reg.register(Skill("double_click_element", "Double-click a UI element by its element_id (use for desktop icons)", {"type": "object", "properties": {"element_id": {"type": "integer"}}, "required": ["element_id"]}, skill_double_click, resolve_element=True))
+        reg.register(Skill("click", "Click at specific x,y coordinates", {"type": "object", "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}, "button": {"type": "string", "enum": ["left", "right", "middle"], "default": "left"}}, "required": ["x", "y"]}, skill_click))
+        reg.register(Skill("double_click", "Double click at coordinates or element", {"type": "object", "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}}, "required": ["x", "y"]}, skill_double_click))
+        reg.register(Skill("right_click", "Right click at coordinates", {"type": "object", "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}}, "required": ["x", "y"]}, skill_right_click))
+        reg.register(Skill("drag", "Drag from one point to another", {"type": "object", "properties": {"from_x": {"type": "integer"}, "from_y": {"type": "integer"}, "to_x": {"type": "integer"}, "to_y": {"type": "integer"}, "duration": {"type": "number", "default": 0.5}}, "required": ["from_x", "from_y", "to_x", "to_y"]}, skill_drag))
+        reg.register(Skill("scroll", "Scroll the mouse wheel", {"type": "object", "properties": {"clicks": {"type": "integer"}, "x": {"type": "integer"}, "y": {"type": "integer"}}, "required": ["clicks"]}, skill_scroll))
+        reg.register(Skill("move_mouse", "Move mouse to coordinates", {"type": "object", "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}, "duration": {"type": "number", "default": 0.3}}, "required": ["x", "y"]}, skill_move_mouse))
+        reg.register(Skill("type_text", "Type text at the current focus", {"type": "object", "properties": {"text": {"type": "string"}, "interval": {"type": "number", "default": 0.05}}, "required": ["text"]}, skill_type_text))
+        reg.register(Skill("press_key", "Press a single key (or key combo with +)", {"type": "object", "properties": {"key": {"type": "string"}}, "required": ["key"]}, skill_press_key))
+        reg.register(Skill("hotkey", "Press a hotkey combination", {"type": "object", "properties": {"keys": {"type": "array", "items": {"type": "string"}}}, "required": ["keys"]}, skill_hotkey))
+        reg.register(Skill("press_and_release", "Press and release a sequence of modifier keys", {"type": "object", "properties": {"keys": {"type": "array", "items": {"type": "string"}}}, "required": ["keys"]}, skill_press_and_release))
+        reg.register(Skill("open_app", "Open an application or file", {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}, skill_open_app))
+        reg.register(Skill("run_command", "Execute a shell command", {"type": "object", "properties": {"command": {"type": "string"}, "cwd": {"type": "string"}, "timeout": {"type": "integer", "default": 30}}, "required": ["command"]}, skill_run_command))
+        reg.register(Skill("read_file", "Read a file from disk", {"type": "object", "properties": {"path": {"type": "string"}, "max_chars": {"type": "integer", "default": 5000}}, "required": ["path"]}, skill_read_file))
+        reg.register(Skill("write_file", "Write content to a file", {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}, skill_write_file))
+        reg.register(Skill("done", "Signal that the task is complete", {"type": "object", "properties": {"result": {"type": "string"}}, "required": ["result"]}, lambda p: p.get("result", "")))
+
+        def _skill_open_url(p: dict) -> str:
+            from voirol.command.actions import open_url as _open_url
+            result = _open_url(p["url"])
+            return f"Opened URL: {p['url']}"
+
+        def _skill_minimize_all(p: dict) -> str:
+            import pyautogui
+            pyautogui.hotkey("win", "d")
+            return "Minimized all windows (Win+D)"
+
+        reg.register(Skill("open_url", "Open a URL in the default browser", {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}, _skill_open_url))
+        reg.register(Skill("minimize_all", "Minimize all windows to show desktop (Win+D)", {"type": "object", "properties": {}, "required": []}, _skill_minimize_all))
+        return reg
+
+    @property
+    def agent_engine(self):
+        return self._agent_engine
 
     def _on_navigator_status(self, text: str):
         for cb in self._command_callbacks:
@@ -381,7 +462,10 @@ class VoicePipeline:
                 cb(f"cmd:{desc}")
             try:
                 if cmd.capture_param:
-                    cmd.action(param or "")
+                    if cmd.id == "agent":
+                        cmd.action(text)
+                    else:
+                        cmd.action(param or "")
                 else:
                     cmd.action()
                 for cb in self._command_callbacks:

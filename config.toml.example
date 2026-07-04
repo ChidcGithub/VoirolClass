@@ -70,6 +70,13 @@ temperature = 0.1
 timeout = 10
 system_prompt = ""
 
+[agent]
+enabled = false
+max_steps = 30
+ocr_lang = "chi_sim+eng"
+temperature = 0.1
+timeout = 15
+
 [browser]
 default = "edge"
 search_engine = "https://www.baidu.com/s?wd={}"

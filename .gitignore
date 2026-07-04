@@ -19,3 +19,6 @@ build/
 *.spec
 config.toml
 logs/
+
+tools/
+!tools/.gitkeep

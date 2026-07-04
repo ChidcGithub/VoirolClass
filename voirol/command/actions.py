@@ -67,6 +67,7 @@ _selected_search_engine = None
 _selected_file_search_dirs = None
 _file_navigator = None
 _ai_router_engine = None
+_agent_engine = None
 
 APP_MAP = {
     "记事本": "notepad", "notepad": "notepad",
@@ -102,6 +103,11 @@ def set_file_navigator(nav):
 def set_ai_router_engine(engine):
     global _ai_router_engine
     _ai_router_engine = engine
+
+
+def set_agent_engine(engine):
+    global _agent_engine
+    _agent_engine = engine
 
 
 def set_default_browser(browser: str):
@@ -264,6 +270,14 @@ def open_router(param: str = ""):
         except Exception as e:
             logger.warning(f"AI router failed: {e}, giving up")
 
+    if _agent_engine is not None:
+        logger.info(f"Action: open_router -> falling back to agent for '{param}'")
+        try:
+            _agent_engine.execute(f"打开{param}")
+            return
+        except Exception as e:
+            logger.error(f"Agent fallback failed: {e}")
+
     logger.warning(f"Action: open_router -> unable to route '{param}'")
 
 
@@ -405,3 +419,16 @@ def enter():
 def space():
     pyautogui.press("space")
     logger.info("Action: space")
+
+
+def agent_execute(param: str = ""):
+    if not param:
+        logger.warning("Action: agent -> no param")
+        return
+    if _agent_engine is None:
+        logger.warning("Agent engine not initialized")
+        return
+    try:
+        _agent_engine.execute(param)
+    except Exception as e:
+        logger.error(f"Agent execution failed: {e}")

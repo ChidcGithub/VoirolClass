@@ -1,5 +1,5 @@
 import numpy as np
-from PyQt6.QtCore import Qt, QThread
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QIcon
 from PyQt6.QtWidgets import (
     QApplication,
@@ -68,6 +68,7 @@ class SettingsDialog(QDialog):
         self._add_voice_tab()
         self._add_general_tab()
         self._add_ai_tab()
+        self._add_agent_tab()
         self._add_model_tab()
         self._add_log_tab()
         self._add_about_tab()
@@ -572,6 +573,88 @@ class SettingsDialog(QDialog):
         self._download_all_btn.setEnabled(True)
         md.clear_queue()
 
+    def _refresh_tesseract_status(self):
+        try:
+            from voirol.utils.tesseract_download import (
+                check_tesseract_installed, get_tesseract_exe,
+                get_version, get_language_packs, TESSEL_DIR,
+            )
+            installed = check_tesseract_installed()
+            if installed:
+                ver = get_version()
+                exe_path = get_tesseract_exe()
+                self._tesseract_status.setText(t("tesseract.installed", version=ver))
+                self._tesseract_status.setStyleSheet("color: #4caf50;")
+                path_label = self.findChild(type(self._tesseract_status), "tesseract_path_label")
+                text = t("tesseract.command_path", path=exe_path or TESSEL_DIR)
+                self._tesseract_path_label = QLabel(text)
+                packs = get_language_packs()
+                self._tesseract_lang_eng.setText(
+                    f"  eng: {t('tesseract.language_pack_found') if 'eng' in packs else t('tesseract.language_pack_missing')}"
+                )
+                self._tesseract_lang_chi.setText(
+                    f"  chi_sim: {t('tesseract.language_pack_found') if 'chi_sim' in packs else t('tesseract.language_pack_missing')}"
+                )
+            else:
+                self._tesseract_status.setText(t("tesseract.not_installed"))
+                self._tesseract_status.setStyleSheet("color: #f44336;")
+                self._tesseract_path_label = QLabel(t("tesseract.no_path"))
+                self._tesseract_lang_eng.setText("")
+                self._tesseract_lang_chi.setText("")
+            self._tesseract_install_btn.setEnabled(not installed)
+        except Exception as e:
+            logger.warning(f"Tesseract status refresh failed: {e}")
+
+    def _on_tesseract_check(self):
+        self._refresh_tesseract_status()
+
+    def _on_tesseract_install(self):
+        try:
+            self._tesseract_install_btn.setEnabled(False)
+            self._tesseract_check_btn.setEnabled(False)
+            self._tesseract_progress.setVisible(True)
+            self._tesseract_progress.setValue(0)
+            self._tesseract_progress_label.setText(t("tesseract.downloading"))
+            QApplication.processEvents()
+
+            mirror_url = self.pipeline.config.download.get("mirror_url", "")
+            self._tesseract_thread = _TesseractInstallThread(mirror_url=mirror_url)
+            self._tesseract_thread.progress.connect(self._on_tesseract_progress)
+            self._tesseract_thread.status.connect(self._on_tesseract_status)
+            self._tesseract_thread.finished.connect(self._on_tesseract_finished)
+            self._tesseract_thread.finished.connect(self._tesseract_thread.deleteLater)
+            self._tesseract_thread.start()
+        except Exception as e:
+            import sys
+            print(f"[Tesseract] FAILED TO START: {e}", file=sys.stderr, flush=True)
+            logger.error(f"Tesseract install failed to start: {e}")
+            self._tesseract_install_btn.setEnabled(True)
+            self._tesseract_check_btn.setEnabled(True)
+            self._tesseract_progress.setVisible(False)
+
+    def _on_tesseract_progress(self, pct: int):
+        if pct == -1:
+            self._tesseract_progress_label.setText(t("tesseract.extracting"))
+            self._tesseract_progress.setValue(0)
+        else:
+            self._tesseract_progress.setValue(pct)
+            if pct < 100:
+                self._tesseract_progress_label.setText(f"{pct}%")
+
+    def _on_tesseract_status(self, text: str):
+        self._tesseract_progress_label.setText(text)
+
+    def _on_tesseract_finished(self, success: bool):
+        self._tesseract_install_btn.setEnabled(True)
+        self._tesseract_check_btn.setEnabled(True)
+        if success:
+            self._tesseract_progress.setValue(100)
+            self._tesseract_progress_label.setText(t("tesseract.ready"))
+        else:
+            self._tesseract_progress.setValue(0)
+            self._tesseract_progress_label.setText(t("tesseract.fail", error=""))
+        self._refresh_tesseract_status()
+
     def _add_general_tab(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
@@ -725,11 +808,61 @@ class SettingsDialog(QDialog):
             self._dl_rows[mid] = (bar, status_label)
         layout.addWidget(self._progress_group)
 
+        layout.addSpacing(16)
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setFrameShadow(QFrame.Shadow.Sunken)
+        layout.addWidget(sep)
+
+        tesseract_group = QGroupBox(t("tesseract.title"))
+        tesseract_layout = QVBoxLayout(tesseract_group)
+        tesseract_layout.setSpacing(6)
+
+        self._tesseract_status = QLabel("")
+        tesseract_layout.addWidget(self._tesseract_status)
+
+        path_layout = QHBoxLayout()
+        path_label = QLabel(t("tesseract.command_path").format(path=""))
+        path_label.setObjectName("tesseract_path_label")
+        path_layout.addWidget(path_label)
+        path_layout.addStretch()
+        tesseract_layout.addLayout(path_layout)
+
+        lang_label = QLabel(t("tesseract.language_packs"))
+        tesseract_layout.addWidget(lang_label)
+
+        self._tesseract_lang_eng = QLabel()
+        tesseract_layout.addWidget(self._tesseract_lang_eng)
+        self._tesseract_lang_chi = QLabel()
+        tesseract_layout.addWidget(self._tesseract_lang_chi)
+
+        btn_layout2 = QHBoxLayout()
+        self._tesseract_check_btn = QPushButton(t("tesseract.check"))
+        self._tesseract_check_btn.clicked.connect(self._on_tesseract_check)
+        btn_layout2.addWidget(self._tesseract_check_btn)
+
+        self._tesseract_install_btn = QPushButton(t("tesseract.download_install"))
+        self._tesseract_install_btn.clicked.connect(self._on_tesseract_install)
+        btn_layout2.addWidget(self._tesseract_install_btn)
+        tesseract_layout.addLayout(btn_layout2)
+
+        self._tesseract_progress = QProgressBar()
+        self._tesseract_progress.setMinimum(0)
+        self._tesseract_progress.setMaximum(100)
+        self._tesseract_progress.setValue(0)
+        self._tesseract_progress.setVisible(False)
+        tesseract_layout.addWidget(self._tesseract_progress)
+
+        self._tesseract_progress_label = QLabel("")
+        tesseract_layout.addWidget(self._tesseract_progress_label)
+
+        layout.addWidget(tesseract_group)
         layout.addStretch()
         self.tabs.addTab(tab, t("model.tab"))
 
         self._refresh_model_table()
         self._check_resume_queue()
+        self._refresh_tesseract_status()
 
     def _add_ai_tab(self):
         tab = QWidget()
@@ -830,6 +963,69 @@ class SettingsDialog(QDialog):
 
     def _on_ai_reset_prompt(self):
         self._ai_prompt_edit.setPlainText(DEFAULT_SYSTEM_PROMPT)
+
+    def _add_agent_tab(self):
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(8)
+
+        agent_cfg = self.pipeline.config.agent
+
+        self._agent_enabled_cb = QCheckBox(t("agent.enable"))
+        self._agent_enabled_cb.setChecked(agent_cfg.get("enabled", False))
+        self._agent_enabled_cb.toggled.connect(self._on_agent_config_changed)
+        layout.addWidget(self._agent_enabled_cb)
+
+        steps_label = QLabel(t("agent.max_steps"))
+        layout.addWidget(steps_label)
+
+        self._agent_steps_spin = QSpinBox()
+        self._agent_steps_spin.setRange(5, 100)
+        self._agent_steps_spin.setValue(agent_cfg.get("max_steps", 30))
+        self._agent_steps_spin.valueChanged.connect(self._on_agent_config_changed)
+        layout.addWidget(self._agent_steps_spin)
+
+        ocr_label = QLabel(t("agent.ocr_lang"))
+        layout.addWidget(ocr_label)
+
+        self._agent_ocr_input = QLineEdit()
+        self._agent_ocr_input.setPlaceholderText("chi_sim+eng")
+        self._agent_ocr_input.setText(agent_cfg.get("ocr_lang", "chi_sim+eng"))
+        self._agent_ocr_input.textChanged.connect(self._on_agent_config_changed)
+        layout.addWidget(self._agent_ocr_input)
+
+        temp_label = QLabel(t("agent.temperature"))
+        layout.addWidget(temp_label)
+
+        self._agent_temp_spin = QDoubleSpinBox()
+        self._agent_temp_spin.setRange(0.0, 2.0)
+        self._agent_temp_spin.setSingleStep(0.1)
+        self._agent_temp_spin.setDecimals(1)
+        self._agent_temp_spin.setValue(agent_cfg.get("temperature", 0.1))
+        self._agent_temp_spin.valueChanged.connect(self._on_agent_config_changed)
+        layout.addWidget(self._agent_temp_spin)
+
+        timeout_label = QLabel(t("agent.timeout"))
+        layout.addWidget(timeout_label)
+
+        self._agent_timeout_spin = QSpinBox()
+        self._agent_timeout_spin.setRange(5, 120)
+        self._agent_timeout_spin.setValue(agent_cfg.get("timeout", 15))
+        self._agent_timeout_spin.valueChanged.connect(self._on_agent_config_changed)
+        layout.addWidget(self._agent_timeout_spin)
+
+        layout.addStretch()
+        self.tabs.addTab(tab, t("agent.tab"))
+
+    def _on_agent_config_changed(self):
+        self.pipeline.config.agent["enabled"] = self._agent_enabled_cb.isChecked()
+        self.pipeline.config.agent["max_steps"] = self._agent_steps_spin.value()
+        self.pipeline.config.agent["ocr_lang"] = self._agent_ocr_input.text().strip()
+        self.pipeline.config.agent["temperature"] = self._agent_temp_spin.value()
+        self.pipeline.config.agent["timeout"] = self._agent_timeout_spin.value()
+        from voirol.core.config import save_config
+        save_config(self.pipeline.config)
 
     def _add_log_tab(self):
         tab = QWidget()
@@ -1098,3 +1294,50 @@ def _show_enroll_dialog(pipeline: VoicePipeline):
 
     start_btn.clicked.connect(on_start)
     dialog.exec()
+
+
+class _TesseractInstallThread(QThread):
+    progress = pyqtSignal(int)
+    status = pyqtSignal(str)
+    finished = pyqtSignal(bool)
+
+    def __init__(self, mirror_url=""):
+        super().__init__()
+        self.mirror_url = mirror_url
+
+    def run(self):
+        try:
+            from voirol.utils.tesseract_download import (
+                download_tesseract_exe, extract_and_setup,
+                download_tessdata, TESSEL_DIR,
+            )
+
+            self.status.emit(t("tesseract.downloading"))
+            exe_path = download_tesseract_exe(
+                progress_callback=lambda p: self.progress.emit(p),
+                mirror_url=self.mirror_url,
+            )
+            self.progress.emit(100)
+            self.status.emit(t("tesseract.extracting"))
+            ok = extract_and_setup(exe_path, progress_callback=lambda p: self.progress.emit(p))
+            if not ok:
+                self.finished.emit(False)
+                return
+
+            self.status.emit(t("tesseract.downloading_lang", lang="eng"))
+            download_tessdata("eng",
+                progress_callback=lambda p: self.progress.emit(50 + p // 2),
+                mirror_url=self.mirror_url,
+            )
+            self.status.emit(t("tesseract.downloading_lang", lang="chi_sim"))
+            download_tessdata("chi_sim",
+                progress_callback=lambda p: self.progress.emit(75 + p // 4),
+                mirror_url=self.mirror_url,
+            )
+            self.progress.emit(100)
+            self.finished.emit(True)
+        except Exception as e:
+            import sys
+            print(f"[Tesseract] ERROR: {e}", file=sys.stderr, flush=True)
+            logger.error(f"Tesseract install failed: {e}")
+            self.finished.emit(False)

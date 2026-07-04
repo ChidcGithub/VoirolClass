@@ -72,6 +72,10 @@ class Config:
     download: dict = field(default_factory=lambda: {
         "mirror_url": "",
     })
+    tesseract: dict = field(default_factory=lambda: {
+        "custom_path": "",
+        "version": "",
+    })
     ai: dict = field(default_factory=lambda: {
         "enabled": False,
         "provider": "openai",
@@ -80,6 +84,14 @@ class Config:
         "model": "deepseek-chat",
         "temperature": 0.1,
         "timeout": 10,
+        "system_prompt": "",
+    })
+    agent: dict = field(default_factory=lambda: {
+        "enabled": False,
+        "max_steps": 30,
+        "ocr_lang": "chi_sim+eng",
+        "temperature": 0.1,
+        "timeout": 15,
         "system_prompt": "",
     })
     browser: dict = field(default_factory=lambda: {

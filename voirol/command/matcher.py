@@ -60,7 +60,7 @@ class CommandMatcher:
         best_len = 0
         for cmd in self.registry.get_all():
             for kw in cmd.keywords:
-                if kw.lower() in text and len(kw) > best_len:
+                if kw.lower() in text and len(kw) >= best_len:
                     best_len = len(kw)
                     best = cmd
         if best:

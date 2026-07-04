@@ -147,33 +147,33 @@ def _extract_model(entry: ModelEntry, filepath: str, progress_callback=None):
         raise ValueError(f"Not a valid tar file: {filepath}")
 
     extract_dir = os.path.join(base, "_extracted_sv")
-        if os.path.exists(extract_dir):
-            shutil.rmtree(extract_dir)
-        os.makedirs(extract_dir, exist_ok=True)
+    if os.path.exists(extract_dir):
+        shutil.rmtree(extract_dir)
+    os.makedirs(extract_dir, exist_ok=True)
 
-        with tarfile.open(filepath, "r:bz2") as tar:
-            members = tar.getmembers()
-            total = len(members)
-            for i, m in enumerate(members):
-                tar.extract(m, extract_dir)
-                if progress_callback:
-                    pct = int((i + 1) / total * 90)
-                    progress_callback(pct)
+    with tarfile.open(filepath, "r:bz2") as tar:
+        members = tar.getmembers()
+        total = len(members)
+        for i, m in enumerate(members):
+            tar.extract(m, extract_dir)
+            if progress_callback:
+                pct = int((i + 1) / total * 90)
+                progress_callback(pct)
 
-        target = os.path.join(base, "sensevoice")
-        items = os.listdir(extract_dir)
-        if items:
-            src = os.path.join(extract_dir, items[0])
-            if os.path.isdir(src):
-                if os.path.exists(target):
-                    shutil.rmtree(target)
-                os.rename(src, target)
-            else:
-                if os.path.exists(target):
-                    shutil.rmtree(target)
-                shutil.copytree(extract_dir, target)
-        shutil.rmtree(extract_dir, ignore_errors=True)
-        logger.info(f"SenseVoice extracted to {target}")
+    target = os.path.join(base, "sensevoice")
+    items = os.listdir(extract_dir)
+    if items:
+        src = os.path.join(extract_dir, items[0])
+        if os.path.isdir(src):
+            if os.path.exists(target):
+                shutil.rmtree(target)
+            os.rename(src, target)
+        else:
+            if os.path.exists(target):
+                shutil.rmtree(target)
+            shutil.copytree(extract_dir, target)
+    shutil.rmtree(extract_dir, ignore_errors=True)
+    logger.info(f"SenseVoice extracted to {target}")
 
     if progress_callback:
         progress_callback(95)
