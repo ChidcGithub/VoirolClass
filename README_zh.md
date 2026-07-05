@@ -6,7 +6,7 @@
   **面向教师的语音控制教室辅助工具。使用自然语音即可控制幻灯片、屏幕、音量及应用程序，实现免提操作。**
 
   [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square)](https://www.python.org/)
-  [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
+  [![License](https://img.shields.io/badge/license-GPLv3-blue?style=flat-square)](LICENSE)
   [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey?style=flat-square)](https://www.microsoft.com/windows)
   [![Version](https://img.shields.io/github/v/release/ChidcGithub/VoirolClass?style=flat-square&color=white)](https://github.com/ChidcGithub/VoirolClass/releases)
   [![Build](https://img.shields.io/github/actions/workflow/status/ChidcGithub/VoirolClass/build.yml?style=flat-square&label=build)](https://github.com/ChidcGithub/VoirolClass/actions)
