@@ -9,7 +9,10 @@ from voirol.utils.logger import get_logger
 
 logger = get_logger("utils.tesseract_download")
 
-APP_DIR = os.path.dirname(os.path.abspath(sys.argv[0]))
+if getattr(sys, 'frozen', False):
+    APP_DIR = os.path.dirname(sys.executable)
+else:
+    APP_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 TESSEL_DIR = os.path.join(APP_DIR, "tools", "tesseract")
 TESSDATA_DIR = os.path.join(TESSEL_DIR, "tessdata")
 EXPECTED_EXE = os.path.join(TESSEL_DIR, "tesseract.exe")
@@ -85,7 +88,7 @@ def get_version() -> str:
                 if part[0:1].isdigit():
                     return part
             return first_line
-    except:
+    except Exception:
         pass
     return ""
 
@@ -169,11 +172,15 @@ def _ensure_7z(progress_callback=None) -> str | None:
     if not os.path.exists(opener_dir):
         os.makedirs(opener_dir, exist_ok=True)
     logger.info("Extracting 7-Zip installer...")
+    startupinfo = None
+    if sys.platform == "win32":
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
     result = subprocess.run(
         [sevenzr_path, "x", installer_path, f"-o{opener_dir}", "-y"],
-        capture_output=True, timeout=60,
+        capture_output=True, timeout=60, startupinfo=startupinfo,
     )
-    if result.returncode != 0:
+    if result.returncode not in (0, 1):
         err = (result.stderr or "").strip()[:500]
         if isinstance(err, bytes):
             err = err.decode("utf-8", errors="replace")
@@ -213,12 +220,16 @@ def _ensure_7z(progress_callback=None) -> str | None:
 
 def _extract_nsis_with_7z(exe_path: str, sevenz_path: str, progress_callback=None) -> bool:
     logger.info(f"Extracting NSIS with 7z: {sevenz_path} x {exe_path} -o{TESSEL_DIR}")
+    startupinfo = None
+    if sys.platform == "win32":
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
     try:
         proc = subprocess.run(
             [sevenz_path, "x", exe_path, f"-o{TESSEL_DIR}", "-y", "-aoa"],
-            capture_output=True, text=True, timeout=180,
+            capture_output=True, text=True, timeout=180, startupinfo=startupinfo,
         )
-        if proc.returncode != 0:
+        if proc.returncode not in (0, 1):
             logger.error(f"7z extraction failed (code {proc.returncode}): {proc.stderr[:200]}")
             return False
         logger.info("7z extraction succeeded")
@@ -240,8 +251,11 @@ def download_tesseract_exe(progress_callback=None, mirror_url="") -> str:
         return filepath
 
     url = TESSERACT_EXE_URLS[0]
+    mirrors = []
     if mirror_url and any(domain in url for domain in ["github.com", "raw.githubusercontent.com"]):
-        url = mirror_url.rstrip("/") + "/" + url.lstrip("/")
+        mirror = mirror_url.rstrip("/") + "/" + url.lstrip("/")
+        mirrors.append(url)
+        url = mirror
     download_file(
         url=url,
         dest_path=TESSEL_DIR,
@@ -249,6 +263,7 @@ def download_tesseract_exe(progress_callback=None, mirror_url="") -> str:
         desc=f"Tesseract {TESSERACT_VERSION} installer",
         timeout=300,
         retries=3,
+        mirrors=mirrors,
         progress_callback=progress_callback,
     )
     return filepath
@@ -287,6 +302,10 @@ def extract_and_setup(exe_path: str, progress_callback=None) -> bool:
         progress_callback(10)
 
     extract_ok = False
+    startupinfo = None
+    if sys.platform == "win32":
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
     try:
         logger.info(f"Running NSIS installer: {exe_path} /S /D={TESSEL_DIR}")
         proc = subprocess.run(
@@ -294,6 +313,7 @@ def extract_and_setup(exe_path: str, progress_callback=None) -> bool:
             capture_output=True,
             text=True,
             timeout=180,
+            startupinfo=startupinfo,
         )
         if proc.returncode == 0:
             extract_ok = True
@@ -340,7 +360,8 @@ def extract_and_setup(exe_path: str, progress_callback=None) -> bool:
     if temp_tessdata and os.path.isdir(temp_tessdata):
         if os.path.isdir(old_tessdata):
             shutil.rmtree(old_tessdata)
-        shutil.move(temp_tessdata, old_tessdata)
+        shutil.copytree(temp_tessdata, old_tessdata, dirs_exist_ok=True)
+        shutil.rmtree(temp_tessdata)
 
     if progress_callback:
         progress_callback(80)
@@ -428,13 +449,13 @@ def _ensure_tessdata_junction() -> str | None:
         return junction
 
     if os.path.exists(junction):
-        subprocess.run(["cmd", "/c", "rmdir", junction], capture_output=True, timeout=10)
+        subprocess.run(["cmd", "/c", "rmdir", f'"{junction}"'], capture_output=True, timeout=10)
         if os.path.exists(junction):
             return None
 
     try:
         result = subprocess.run(
-            ["cmd", "/c", "mklink", "/J", junction, TESSDATA_DIR],
+            ["cmd", "/c", "mklink", "/J", f'"{junction}"', f'"{TESSDATA_DIR}"'],
             capture_output=True, text=True, timeout=10,
         )
         if result.returncode == 0:
@@ -450,14 +471,14 @@ def setup_pytesseract_path() -> bool:
     exe = get_tesseract_exe()
     if exe is None:
         return False
+    if os.path.isdir(TESSDATA_DIR):
+        junction = _ensure_tessdata_junction()
+        data_dir = junction or TESSDATA_DIR
+        os.environ["TESSDATA_PREFIX"] = data_dir
     try:
         import pytesseract
         pytesseract.pytesseract.tesseract_cmd = exe
         logger.info(f"pytesseract configured: {exe}")
-        if os.path.isdir(TESSDATA_DIR):
-            junction = _ensure_tessdata_junction()
-            data_dir = junction or TESSDATA_DIR
-            os.environ["TESSDATA_PREFIX"] = data_dir
         return True
     except ImportError:
         logger.warning("pytesseract not installed")

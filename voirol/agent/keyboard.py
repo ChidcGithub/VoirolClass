@@ -36,28 +36,43 @@ def _hotkey_description(keys: tuple[str, ...]) -> str:
 def skill_type_text(params: dict) -> str:
     text = params["text"]
     interval = params.get("interval", 0.05)
-    pyautogui.write(text, interval=interval)
+    try:
+        pyautogui.write(text, interval=interval)
+    except pyautogui.FailSafeException:
+        logger.warning("FailSafe triggered during type_text")
+        return "Error: FailSafe triggered"
     logger.info(f"Typed text (len={len(text)})")
     return f"Typed text (len={len(text)}): {text[:50]}"
 
 
 def skill_press_key(params: dict) -> str:
     key = params["key"]
-    if "+" in key:
-        keys = tuple(key.split("+"))
-        pyautogui.hotkey(*keys)
-        desc = _hotkey_description(keys)
-        logger.info(f"Pressed hotkey: {desc}")
-        return f"Pressed hotkey: {desc}"
-    else:
-        pyautogui.press(key)
-        logger.info(f"Pressed key: {key}")
-        return f"Pressed key: {key}"
+    try:
+        if "+" in key:
+            keys = tuple(key.split("+"))
+            pyautogui.hotkey(*keys)
+            desc = _hotkey_description(keys)
+            logger.info(f"Pressed hotkey: {desc}")
+            return f"Pressed hotkey: {desc}"
+        else:
+            pyautogui.press(key)
+            logger.info(f"Pressed key: {key}")
+            return f"Pressed key: {key}"
+    except pyautogui.FailSafeException:
+        logger.warning("FailSafe triggered during press_key")
+        return "Error: FailSafe triggered"
 
 
 def skill_hotkey(params: dict) -> str:
-    keys = tuple(params["keys"])
-    pyautogui.hotkey(*keys)
+    keys = params["keys"]
+    if isinstance(keys, str):
+        keys = [keys]
+    keys = tuple(keys)
+    try:
+        pyautogui.hotkey(*keys)
+    except pyautogui.FailSafeException:
+        logger.warning("FailSafe triggered during hotkey")
+        return "Error: FailSafe triggered"
     desc = _hotkey_description(keys)
     logger.info(f"Hotkey: {desc}")
     return f"Pressed hotkey: {desc}"
@@ -65,9 +80,15 @@ def skill_hotkey(params: dict) -> str:
 
 def skill_press_and_release(params: dict) -> str:
     keys = params["keys"]
-    for k in keys:
-        pyautogui.keyDown(k)
-    for k in reversed(keys):
-        pyautogui.keyUp(k)
+    if isinstance(keys, str):
+        keys = [keys]
+    try:
+        for k in keys:
+            pyautogui.keyDown(k)
+        for k in reversed(keys):
+            pyautogui.keyUp(k)
+    except pyautogui.FailSafeException:
+        logger.warning("FailSafe triggered during press_and_release")
+        return "Error: FailSafe triggered"
     logger.info(f"Press and release: {'+'.join(keys)}")
     return f"Press and release: {'+'.join(keys)}"

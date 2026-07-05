@@ -97,6 +97,12 @@ def download_file(
                 return full_path
 
             except (requests.RequestException, ValueError) as e:
+                if os.path.exists(full_path):
+                    try:
+                        os.remove(full_path)
+                        logger.debug(f"Removed partial file: {full_path}")
+                    except OSError as rm_err:
+                        logger.warning(f"Failed to remove partial file: {rm_err}")
                 if attempt < retries - 1:
                     wait = RETRY_DELAY * (attempt + 1)
                     logger.warning(
@@ -112,8 +118,3 @@ def download_file(
                         )
                     else:
                         raise
-
-    raise RuntimeError(
-        f"Failed to download {filename} after "
-        f"{len(urls)} URL(s) × {retries} retries"
-    )

@@ -2,21 +2,9 @@ import os
 import subprocess
 
 from voirol.utils.logger import get_logger
+from voirol.command.maps import APP_MAP
 
 logger = get_logger("agent.file_ops")
-
-APP_MAP = {
-    "记事本": "notepad", "notepad": "notepad",
-    "计算器": "calc", "calc": "calc",
-    "画图": "mspaint", "mspaint": "mspaint",
-    "命令提示符": "cmd", "cmd": "cmd", "命令行": "cmd",
-    "任务管理器": "taskmgr", "taskmgr": "taskmgr",
-    "控制面板": "control", "control": "control",
-    "资源管理器": "explorer", "explorer": "explorer",
-    "注册表": "regedit", "regedit": "regedit",
-    "powershell": "powershell", "PowerShell": "powershell",
-    "设置": "ms-settings:", "settings": "ms-settings:",
-}
 
 
 def skill_open_app(params: dict) -> str:
@@ -24,7 +12,10 @@ def skill_open_app(params: dict) -> str:
     app = APP_MAP.get(name)
     try:
         if app:
-            subprocess.Popen(app)
+            if app.startswith("ms-"):
+                os.startfile(app)
+            else:
+                subprocess.Popen(app)
         else:
             os.startfile(name)
     except Exception as e:
@@ -62,10 +53,11 @@ def skill_read_file(params: dict) -> str:
     try:
         with open(path, "r", encoding="utf-8") as f:
             content = f.read(max_chars + 1)
-            truncated = len(content) > max_chars
+            actual_len = len(content)
+            truncated = actual_len > max_chars
             content = content[:max_chars]
             if truncated:
-                content += f"\n... (truncated, total N bytes)"
+                content += f"\n... (truncated, total {actual_len} bytes)"
         return f"File {path}: {content}"
     except (FileNotFoundError, UnicodeDecodeError, OSError) as e:
         logger.warning(f"Failed to read file '{path}': {e}")
@@ -83,3 +75,30 @@ def skill_write_file(params: dict) -> str:
     except (OSError, UnicodeEncodeError) as e:
         logger.warning(f"Failed to write file '{path}': {e}")
         return f"Error writing '{path}': {e}"
+
+
+_FILE_NAVIGATOR_SEARCH_DIRS = [
+    os.path.expanduser("~/Desktop"),
+    os.path.expanduser("~/Documents"),
+    os.path.expanduser("~/Downloads"),
+    os.getcwd(),
+]
+
+
+def skill_find_file(params: dict) -> str:
+    from voirol.command.file_navigator import FileNavigator
+    from voirol.ai.openai_engine import OpenAIEngine
+
+    query = params["query"]
+    engine = OpenAIEngine(
+        api_url="https://api.deepseek.com/v1",
+        api_key=os.environ.get("DEEPSEEK_API_KEY", ""),
+        model="deepseek-chat",
+    )
+    nav = FileNavigator(engine, max_depth=5)
+    search_dirs = _FILE_NAVIGATOR_SEARCH_DIRS
+    result = nav.find_file(query, search_dirs)
+    if result:
+        nav.clear_context()
+        return f"Found file: {result}"
+    return f"File not found: {query}"

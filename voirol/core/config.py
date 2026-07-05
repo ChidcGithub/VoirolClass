@@ -71,6 +71,7 @@ class Config:
     })
     download: dict = field(default_factory=lambda: {
         "mirror_url": "",
+        "hf_mirror_url": "",
     })
     tesseract: dict = field(default_factory=lambda: {
         "custom_path": "",
@@ -101,6 +102,16 @@ class Config:
     file: dict = field(default_factory=lambda: {
         "search_dirs": ["~/Desktop", "~/Documents", "~/Downloads"],
         "ai_search_depth": 5,
+    })
+    tts: dict = field(default_factory=lambda: {
+        "enabled": False,
+        "engine": "moss",
+        "voice": "Xiaoyu",
+        "port": 8080,
+        "host": "127.0.0.1",
+        "model_path": "models/moss-tts-nano",
+        "audio_tokenizer_path": "models/moss-audio-tokenizer-nano",
+        "server_timeout": 60,
     })
     logging: dict = field(default_factory=lambda: {
         "level": "INFO",

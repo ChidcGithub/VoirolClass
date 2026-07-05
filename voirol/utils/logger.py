@@ -16,22 +16,40 @@ class LogSignal(QObject):
 _log_signal = LogSignal()
 
 
+_global_log_buffer: list[str] = []
+_MAX_BUFFER = 20000
+
+
 class QtLogHandler(logging.Handler):
     def emit(self, record):
         try:
+            global _global_log_buffer
             msg = self.format(record)
+            _global_log_buffer.append(msg)
+            if len(_global_log_buffer) > _MAX_BUFFER:
+                _global_log_buffer = _global_log_buffer[-_MAX_BUFFER // 2:]
             _log_signal.emitted.emit(msg)
         except RuntimeError:
             pass
 
 
 _loggers: dict[str, logging.Logger] = {}
+_DEFAULT_FMT = "[%(asctime)s] [%(levelname)s] %(name)s: %(message)s"
+_DEFAULT_DATEFMT = "%Y-%m-%d %H:%M:%S"
 
 
 def get_logger(name: str = "voirol") -> logging.Logger:
     if name in _loggers:
         return _loggers[name]
     logger = logging.getLogger(name)
+    root = logging.getLogger()
+    if not root.handlers:
+        logging.basicConfig(
+            level=logging.INFO,
+            format=_DEFAULT_FMT,
+            datefmt=_DEFAULT_DATEFMT,
+            stream=sys.stdout,
+        )
     _loggers[name] = logger
     return logger
 

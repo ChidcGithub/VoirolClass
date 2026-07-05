@@ -17,6 +17,12 @@ from voirol.voice.model_download import check_model_status
 logger = get_logger("main")
 
 
+_LOG_DIR = os.path.join(
+    os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
+    "VoirolClass", "logs",
+)
+
+
 def main():
     multiprocessing.freeze_support()
 
@@ -24,22 +30,23 @@ def main():
         _run_splash(int(sys.argv[2]))
         return
 
+    # Logger first — before any project code
+    setup_logger(log_dir=_LOG_DIR, level=os.environ.get("VOIROL_LOG_LEVEL", "INFO"))
+
+    config = load_config()
+
+    # Re-apply with config values (dedup by handler type, no duplicates)
+    setup_logger(
+        log_dir=_LOG_DIR,
+        level=config.logging.get("level", "INFO"),
+    )
+
     print(f"""
     ╔══════════════════════════════════════╗
     ║         {t('app.banner_line1')}           ║
     ║       {t('app.banner_line2')}          ║
     ╚══════════════════════════════════════╝
     """)
-
-    config = load_config()
-
-    setup_logger(
-        log_dir=os.path.join(
-            os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
-            "VoirolClass", "logs",
-        ),
-        level=config.logging.get("level", "INFO"),
-    )
 
     logger.info("Starting VoirolClass...")
 
@@ -126,13 +133,15 @@ def main():
 
         splash.set_status(t("splash.ready"))
 
-        from voirol.gui.indicator import ListeningIndicator
-        indicator = ListeningIndicator()
+        from voirol.gui.capsule import ActivityCapsule
+        capsule = ActivityCapsule()
         splash.close_with_delay(500)
-        indicator.show()
-        pipeline.on_state_change(lambda s: indicator.set_state(s))
-        pipeline.on_audio_level(lambda lv: indicator.set_level(lv))
-        pipeline.on_command(lambda c: indicator.set_path(c[4:]) if c.startswith(("nav:", "cmd:")) else None)
+        capsule.show()
+        pipeline.on_state_change(lambda s: capsule.set_state(s))
+        pipeline.on_audio_level(lambda lv: capsule.set_level(lv))
+        pipeline.on_asr_text(lambda t: capsule.set_asr(t))
+        pipeline.on_action(lambda t: capsule.set_action(t))
+        pipeline.on_command(lambda c: capsule.set_action(c[4:]) if c.startswith(("nav:", "cmd:")) else None)
 
         print(t("app.running"))
         print(t("app.running_hint") + "\n")

@@ -57,7 +57,9 @@ class SkillRegistry:
                     resolved["y"] = el.cy
                     break
             else:
-                logger.warning(f"Element not found for id: {element_id}")
+                logger.warning(f"Element not found for id: {element_id}, providing fallback values")
+                resolved.setdefault("x", 0)
+                resolved.setdefault("y", 0)
 
         logger.debug(f"Executing skill: {name} with params: {resolved}")
         return skill.handler(resolved)

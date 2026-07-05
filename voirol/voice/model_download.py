@@ -35,6 +35,11 @@ class ModelEntry:
     auto: bool = False
 
 
+PORTABLE_PYTHON_URL = (
+    "https://github.com/astral-sh/python-build-standalone/releases/download/20250115/"
+    "cpython-3.12.8+20250115-x86_64-pc-windows-msvc-install_only.tar.gz"
+)
+
 MODELS: dict[str, ModelEntry] = {
     "silero_vad": ModelEntry(
         id="silero_vad",
@@ -66,6 +71,40 @@ MODELS: dict[str, ModelEntry] = {
         size="27 MB",
         auto=True,
     ),
+    "moss_tts_nano": ModelEntry(
+        id="moss_tts_nano",
+        name="MOSS-TTS-Nano-100M",
+        size="2.2 GB",
+        urls=[
+            "https://huggingface.co/OpenMOSS-Team/MOSS-TTS-Nano-100M/resolve/main/pytorch_model.bin",
+        ],
+        dest_dir="models/moss-tts-nano",
+        filename="pytorch_model.bin",
+        expected_files=["models/moss-tts-nano/pytorch_model.bin", "models/moss-tts-nano/config.json"],
+        extract=False,
+    ),
+    "moss_audio_tokenizer": ModelEntry(
+        id="moss_audio_tokenizer",
+        name="MOSS-Audio-Tokenizer-Nano",
+        size="500 MB",
+        urls=[
+            "https://huggingface.co/OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano/resolve/main/model-00001-of-00001.safetensors",
+        ],
+        dest_dir="models/moss-audio-tokenizer-nano",
+        filename="model-00001-of-00001.safetensors",
+        expected_files=["models/moss-audio-tokenizer-nano/model-00001-of-00001.safetensors", "models/moss-audio-tokenizer-nano/config.json"],
+        extract=False,
+    ),
+    "portable_python": ModelEntry(
+        id="portable_python",
+        name="Portable Python 3.12",
+        size="30 MB",
+        urls=[PORTABLE_PYTHON_URL],
+        dest_dir="runtime",
+        filename="python.tar.gz",
+        expected_files=["runtime/python/python.exe"],
+        extract=True,
+    ),
 }
 
 
@@ -88,7 +127,12 @@ def test_mirror(url: str) -> tuple[bool, str]:
         return (False, str(e))
 
 
-def _apply_mirror(original_url: str, mirror_url: str) -> str:
+def _apply_mirror(original_url: str, mirror_url: str, hf_mirror_url: str = "") -> str:
+    if "huggingface.co" in original_url:
+        if hf_mirror_url:
+            domain = hf_mirror_url.rstrip("/").replace("https://", "").replace("http://", "")
+            return original_url.replace("huggingface.co", domain)
+        return original_url
     if not mirror_url:
         return original_url
     if not any(domain in original_url for domain in ["github.com", "raw.githubusercontent.com"]):
@@ -96,14 +140,14 @@ def _apply_mirror(original_url: str, mirror_url: str) -> str:
     return mirror_url.rstrip("/") + "/" + original_url.lstrip("/")
 
 
-def download_model(model_id: str, mirror_url: str = "", progress_callback=None) -> bool:
+def download_model(model_id: str, mirror_url: str = "", hf_mirror_url: str = "", progress_callback=None) -> bool:
     entry = MODELS.get(model_id)
     if not entry or entry.auto:
         return False
 
     try:
-        dl_url = _apply_mirror(entry.urls[0], mirror_url)
-        mirrors = [_apply_mirror(u, mirror_url) for u in entry.urls[1:]] if mirror_url else entry.urls[1:]
+        dl_url = _apply_mirror(entry.urls[0], mirror_url, hf_mirror_url)
+        mirrors = [_apply_mirror(u, mirror_url, hf_mirror_url) for u in entry.urls[1:]] if mirror_url else entry.urls[1:]
 
         dest = entry.dest_dir
         os.makedirs(dest, exist_ok=True)
@@ -137,6 +181,14 @@ def download_model(model_id: str, mirror_url: str = "", progress_callback=None) 
         return False
 
 
+def _detect_tar_mode(filename: str) -> str:
+    if filename.endswith(".tar.bz2"):
+        return "r:bz2"
+    elif filename.endswith(".tar.gz") or filename.endswith(".tgz"):
+        return "r:gz"
+    return "r:"
+
+
 def _extract_model(entry: ModelEntry, filepath: str, progress_callback=None):
     base = os.path.dirname(filepath) or "."
     logger.info(f"Extracting {entry.filename}...")
@@ -146,34 +198,49 @@ def _extract_model(entry: ModelEntry, filepath: str, progress_callback=None):
     if not tarfile.is_tarfile(filepath):
         raise ValueError(f"Not a valid tar file: {filepath}")
 
-    extract_dir = os.path.join(base, "_extracted_sv")
-    if os.path.exists(extract_dir):
-        shutil.rmtree(extract_dir)
-    os.makedirs(extract_dir, exist_ok=True)
+    mode = _detect_tar_mode(entry.filename)
 
-    with tarfile.open(filepath, "r:bz2") as tar:
-        members = tar.getmembers()
-        total = len(members)
-        for i, m in enumerate(members):
-            tar.extract(m, extract_dir)
-            if progress_callback:
-                pct = int((i + 1) / total * 90)
-                progress_callback(pct)
+    if entry.id == "sensevoice":
+        extract_dir = os.path.join(base, "_extracted_sv")
+        if os.path.exists(extract_dir):
+            shutil.rmtree(extract_dir)
+        os.makedirs(extract_dir, exist_ok=True)
 
-    target = os.path.join(base, "sensevoice")
-    items = os.listdir(extract_dir)
-    if items:
-        src = os.path.join(extract_dir, items[0])
-        if os.path.isdir(src):
-            if os.path.exists(target):
-                shutil.rmtree(target)
-            os.rename(src, target)
-        else:
-            if os.path.exists(target):
-                shutil.rmtree(target)
-            shutil.copytree(extract_dir, target)
-    shutil.rmtree(extract_dir, ignore_errors=True)
-    logger.info(f"SenseVoice extracted to {target}")
+        with tarfile.open(filepath, mode) as tar:
+            members = tar.getmembers()
+            total = len(members)
+            for i, m in enumerate(members):
+                tar.extract(m, extract_dir)
+                if progress_callback:
+                    pct = int((i + 1) / total * 90)
+                    progress_callback(pct)
+
+        target = os.path.join(base, "sensevoice")
+        items = os.listdir(extract_dir)
+        if items:
+            src = os.path.join(extract_dir, items[0])
+            if os.path.isdir(src):
+                if os.path.exists(target):
+                    shutil.rmtree(target)
+                os.rename(src, target)
+            else:
+                if os.path.exists(target):
+                    shutil.rmtree(target)
+                shutil.copytree(extract_dir, target)
+        shutil.rmtree(extract_dir, ignore_errors=True)
+        logger.info(f"SenseVoice extracted to {target}")
+    else:
+        dest = entry.dest_dir
+        os.makedirs(dest, exist_ok=True)
+        with tarfile.open(filepath, mode) as tar:
+            members = tar.getmembers()
+            total = len(members)
+            for i, m in enumerate(members):
+                tar.extract(m, dest)
+                if progress_callback:
+                    pct = int((i + 1) / total * 90)
+                    progress_callback(pct)
+        logger.info(f"Extracted {entry.filename} to {dest}")
 
     if progress_callback:
         progress_callback(95)
@@ -204,15 +271,16 @@ class DownloadWorker(QObject):
     model_finished = pyqtSignal(str, bool)
     all_finished = pyqtSignal()
 
-    def __init__(self, model_ids: list[str], mirror_url: str = ""):
+    def __init__(self, model_ids: list[str], mirror_url: str = "", hf_mirror_url: str = ""):
         super().__init__()
         self.model_ids = model_ids
         self.mirror_url = mirror_url
+        self.hf_mirror_url = hf_mirror_url
 
     def run(self):
         for mid in self.model_ids:
             ok = download_model(
-                mid, self.mirror_url,
+                mid, self.mirror_url, self.hf_mirror_url,
                 progress_callback=lambda p: self.progress.emit(mid, p),
             )
             self.model_finished.emit(mid, ok)

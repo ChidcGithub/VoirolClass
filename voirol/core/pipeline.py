@@ -1,7 +1,11 @@
 import concurrent.futures
+import os
+import subprocess
+import sys
 import threading
 import time
 from enum import Enum
+from pathlib import Path
 from typing import Callable
 
 import numpy as np
@@ -25,7 +29,9 @@ from voirol.agent.keyboard import (
 )
 from voirol.agent.file_ops import (
     skill_open_app, skill_run_command, skill_read_file, skill_write_file,
+    skill_find_file,
 )
+from voirol.tts.moss_api import MossApiEngine
 from voirol.command.actions import (
     agent_execute,
     black_screen,
@@ -70,6 +76,8 @@ class VoicePipeline:
         self._state_callbacks: list[Callable[[PipelineState], None]] = []
         self._command_callbacks: list[Callable[[str], None]] = []
         self._audio_level_callbacks: list[Callable[[float], None]] = []
+        self._asr_callbacks: list[Callable[[str], None]] = []
+        self._action_callbacks: list[Callable[[str], None]] = []
         self._audio_buffer: list[np.ndarray] = []
         self._audio_lock = threading.Lock()
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
@@ -156,16 +164,22 @@ class VoicePipeline:
         )
 
         ai_cfg = config.ai
+        agent_cfg = config.agent
+        ai_enabled = ai_cfg.get("enabled") and ai_cfg.get("api_key")
+
         self._ai_matcher: AIMatcher | None = None
         self._file_navigator = None
-        if ai_cfg.get("enabled") and ai_cfg.get("api_key"):
-            ai_engine = OpenAIEngine(
+        self._agent_engine: AgentEngine | None = None
+
+        if ai_enabled:
+            llm_engine = OpenAIEngine(
                 api_url=ai_cfg.get("api_url", "https://api.deepseek.com/v1"),
                 api_key=ai_cfg.get("api_key", ""),
                 model=ai_cfg.get("model", "deepseek-chat"),
             )
+
             self._ai_matcher = AIMatcher(
-                engine=ai_engine,
+                engine=llm_engine,
                 registry=self._cmd_registry,
                 system_prompt=ai_cfg.get("system_prompt", ""),
                 temperature=ai_cfg.get("temperature", 0.1),
@@ -176,41 +190,53 @@ class VoicePipeline:
             from voirol.command.file_navigator import FileNavigator
             from voirol.command.actions import set_file_navigator, set_ai_router_engine
             self._file_navigator = FileNavigator(
-                engine=ai_engine,
+                engine=llm_engine,
                 max_depth=config.file.get("ai_search_depth", 5),
                 status_callback=self._on_navigator_status,
             )
             set_file_navigator(self._file_navigator)
-            set_ai_router_engine(ai_engine)
+            set_ai_router_engine(llm_engine)
             logger.info("File navigator enabled")
-        else:
-            logger.info("AI command matcher disabled")
 
-        self._agent_engine: AgentEngine | None = None
-        agent_cfg = config.agent
-        if agent_cfg.get("enabled") and ai_cfg.get("api_key"):
-            try:
-                self._agent_engine = AgentEngine(
-                    screen_analyzer=ScreenAnalyzer(
-                        ocr_lang=agent_cfg.get("ocr_lang", "chi_sim+eng"),
-                    ),
-                    skill_registry=self._build_agent_skills(),
-                    llm_engine=OpenAIEngine(
-                        api_url=ai_cfg.get("api_url", "https://api.deepseek.com/v1"),
-                        api_key=ai_cfg.get("api_key", ""),
-                        model=ai_cfg.get("model", "deepseek-chat"),
-                    ),
-                    max_steps=agent_cfg.get("max_steps", 30),
-                    temperature=agent_cfg.get("temperature", 0.1),
-                    timeout=agent_cfg.get("timeout", 15),
-                )
-                set_current_engine(self._agent_engine)
-                logger.info("Agent engine enabled")
-            except Exception as e:
-                logger.warning(f"Failed to initialize agent engine: {e}")
-                self._agent_engine = None
+            if agent_cfg.get("enabled"):
+                try:
+                    self._agent_engine = AgentEngine(
+                        screen_analyzer=ScreenAnalyzer(
+                            ocr_lang=agent_cfg.get("ocr_lang", "chi_sim+eng"),
+                        ),
+                        skill_registry=self._build_agent_skills(),
+                        llm_engine=llm_engine,
+                        max_steps=agent_cfg.get("max_steps", 30),
+                        temperature=agent_cfg.get("temperature", 0.1),
+                        timeout=agent_cfg.get("timeout", 15),
+                    )
+                    set_current_engine(self._agent_engine)
+                    logger.info("Agent engine enabled")
+                    self._agent_engine.on_step(lambda skill, reasoning, result: (
+                        [cb(f"[agent] {skill}: {result[:80]}") for cb in self._action_callbacks]
+                    ))
+                except Exception as e:
+                    logger.warning(f"Failed to initialize agent engine: {e}")
+                    self._agent_engine = None
+            else:
+                logger.info("Agent engine disabled")
         else:
-            logger.info("Agent engine disabled")
+            logger.info("AI services disabled (no api_key)")
+
+        self._tts_engine: MossApiEngine | None = None
+        self._tts_process: subprocess.Popen | None = None
+        tts_cfg = config.tts
+        if tts_cfg.get("enabled"):
+            try:
+                self._tts_engine = MossApiEngine(
+                    host=tts_cfg.get("host", "127.0.0.1"),
+                    port=tts_cfg.get("port", 8080),
+                    voice=tts_cfg.get("voice", "Xiaoyu"),
+                )
+                logger.info("TTS engine initialized")
+            except Exception as e:
+                logger.warning(f"Failed to initialize TTS engine: {e}")
+                self._tts_engine = None
 
         from voirol.command.actions import set_default_browser, set_search_engine, set_file_search_dirs, set_agent_engine
         if self._agent_engine is not None:
@@ -279,7 +305,9 @@ class VoicePipeline:
         reg.register(Skill("run_command", "Execute a shell command", {"type": "object", "properties": {"command": {"type": "string"}, "cwd": {"type": "string"}, "timeout": {"type": "integer", "default": 30}}, "required": ["command"]}, skill_run_command))
         reg.register(Skill("read_file", "Read a file from disk", {"type": "object", "properties": {"path": {"type": "string"}, "max_chars": {"type": "integer", "default": 5000}}, "required": ["path"]}, skill_read_file))
         reg.register(Skill("write_file", "Write content to a file", {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}, skill_write_file))
+        reg.register(Skill("find_file", "Search for a file on the filesystem by name or description", {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}, skill_find_file))
         reg.register(Skill("done", "Signal that the task is complete", {"type": "object", "properties": {"result": {"type": "string"}}, "required": ["result"]}, lambda p: p.get("result", "")))
+        reg.register(Skill("ask_user", "Ask the user a question when the instruction is ambiguous", {"type": "object", "properties": {"question": {"type": "string", "description": "The question to ask the user"}}, "required": ["question"]}, lambda p: ""))
 
         def _skill_open_url(p: dict) -> str:
             from voirol.command.actions import open_url as _open_url
@@ -305,6 +333,103 @@ class VoicePipeline:
                 cb(f"nav:{text}")
             except Exception:
                 pass
+        for cb in self._action_callbacks:
+            try:
+                cb(text)
+            except Exception:
+                pass
+
+    @property
+    def tts_engine(self) -> MossApiEngine | None:
+        return self._tts_engine
+
+    def speak(self, text: str, wait: bool = False) -> None:
+        if self._tts_engine is None or not self._tts_engine.is_ready():
+            return
+        try:
+            for cb in self._action_callbacks:
+                try:
+                    cb(f"[tts] 🔊 {text[:60]}")
+                except Exception:
+                    pass
+            if wait:
+                self._tts_engine.synthesize(text)
+            else:
+                self._tts_engine.synthesize_async(text)
+        except Exception as e:
+            logger.warning(f"TTS speak failed: {e}")
+
+    def _launch_tts_server(self) -> subprocess.Popen | None:
+        cfg = self.config.tts
+        model_path = cfg.get("model_path", "models/moss-tts-nano")
+        tok_path = cfg.get("audio_tokenizer_path", "models/moss-audio-tokenizer-nano")
+
+        if not os.path.isdir(model_path) or not os.path.isdir(tok_path):
+            logger.warning(f"TTS model/tokenizer directory not found: {model_path}, {tok_path}")
+            return None
+
+        import shutil
+        runtime_py = os.path.join("runtime", "python", "python.exe")
+        if os.path.exists(runtime_py):
+            full_cmd = [os.path.abspath(runtime_py), "-m", "moss_tts_nano.serve"]
+        else:
+            cmd = shutil.which("moss-tts-nano")
+            if cmd:
+                full_cmd = [cmd, "serve"]
+            else:
+                full_cmd = [sys.executable, "-m", "moss_tts_nano.serve"]
+
+        full_cmd += [
+            "--port", str(cfg.get("port", 8080)),
+            "--checkpoint", model_path,
+            "--audio-tokenizer-path", tok_path,
+            "--device", "cpu",
+        ]
+        proc = subprocess.Popen(
+            full_cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        logger.info(f"TTS server started: {' '.join(full_cmd)}")
+        return proc
+
+    def _wait_for_tts_ready(self, port: int, timeout: int = 60) -> bool:
+        import requests
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                r = requests.get(f"http://127.0.0.1:{port}/api/warmup-status", timeout=2)
+                if r.json().get("state") == "ready":
+                    return True
+            except Exception:
+                pass
+            time.sleep(2)
+        return False
+
+    def _wait_tts_background(self, port: int, timeout: int):
+        if self._wait_for_tts_ready(port, timeout):
+            logger.info("TTS server ready")
+            try:
+                self._tts_engine.load()
+            except Exception as e:
+                logger.warning(f"TTS engine load failed: {e}")
+        else:
+            logger.warning("TTS server startup timed out")
+            self._tts_engine = None
+
+    def _stop_tts_server(self) -> None:
+        if self._tts_process is not None:
+            try:
+                self._tts_process.terminate()
+                self._tts_process.wait(timeout=10)
+            except Exception:
+                try:
+                    self._tts_process.kill()
+                except Exception:
+                    pass
+            self._tts_process = None
+            logger.info("TTS server stopped")
 
     def on_state_change(self, callback: Callable[[PipelineState], None]):
         self._state_callbacks.append(callback)
@@ -314,6 +439,12 @@ class VoicePipeline:
 
     def on_audio_level(self, callback: Callable[[float], None]):
         self._audio_level_callbacks.append(callback)
+
+    def on_asr_text(self, callback: Callable[[str], None]):
+        self._asr_callbacks.append(callback)
+
+    def on_action(self, callback: Callable[[str], None]):
+        self._action_callbacks.append(callback)
 
     def _set_state(self, state: PipelineState):
         if not self._running:
@@ -431,6 +562,13 @@ class VoicePipeline:
 
         text = self.asr_engine.transcribe(full_audio, sr)
 
+        if text:
+            for cb in self._asr_callbacks:
+                try:
+                    cb(text)
+                except Exception:
+                    pass
+
         if self._verbose:
             print(t("asr.result", text=text))
 
@@ -446,6 +584,22 @@ class VoicePipeline:
             self._set_state(PipelineState.IDLE)
             return
 
+        if self._agent_engine and self._agent_engine.awaiting_answer:
+            try:
+                result = agent_execute(text)
+                if isinstance(result, str) and result.startswith("[ASK_USER]"):
+                    question = result[len("[ASK_USER] "):]
+                    for cb in self._action_callbacks:
+                        try:
+                            cb(f"[询问] {question}")
+                        except Exception:
+                            pass
+                    self.speak(question)
+            except Exception as e:
+                logger.error(f"Agent resume failed: {e}")
+            self._set_state(PipelineState.IDLE)
+            return
+
         cmd, param = self.matcher.match_with_param(text)
         if cmd is None and self._ai_matcher is not None:
             ai_cmd = self._ai_matcher.match(text)
@@ -458,16 +612,30 @@ class VoicePipeline:
             desc = cmd.description
             if cmd.capture_param and param:
                 desc = f"{desc}: {param}"
+            for cb in self._action_callbacks:
+                try:
+                    cb(f"→ {desc}")
+                except Exception:
+                    pass
             for cb in self._command_callbacks:
                 cb(f"cmd:{desc}")
             try:
+                ask_user_result = None
                 if cmd.capture_param:
                     if cmd.id == "agent":
-                        cmd.action(text)
+                        ask_user_result = cmd.action(text)
                     else:
                         cmd.action(param or "")
                 else:
                     cmd.action()
+                if isinstance(ask_user_result, str) and ask_user_result.startswith("[ASK_USER]"):
+                    question = ask_user_result[len("[ASK_USER] "):]
+                    for cb in self._action_callbacks:
+                        try:
+                            cb(f"[询问] {question}")
+                        except Exception:
+                            pass
+                    self.speak(question)
                 for cb in self._command_callbacks:
                     try:
                         cb(cmd.id)
@@ -478,6 +646,16 @@ class VoicePipeline:
         else:
             if self._verbose:
                 print(t("cmd.no_match"))
+            if self._agent_engine:
+                try:
+                    result = agent_execute(text)
+                    for cb in self._action_callbacks:
+                        try:
+                            cb(f"[agent] {text}")
+                        except Exception:
+                            pass
+                except Exception as e:
+                    logger.error(f"Agent fallback failed: {e}")
 
         self._set_state(PipelineState.IDLE)
 
@@ -499,6 +677,25 @@ class VoicePipeline:
             logger.warning(f"ASR engine failed to load: {e}. Voice commands disabled.")
             self._asr_ready = False
 
+        if self._tts_engine is not None:
+            try:
+                proc = self._launch_tts_server()
+                if proc is None:
+                    logger.warning("TTS data missing, disabling TTS")
+                    self._tts_engine = None
+                else:
+                    self._tts_process = proc
+                    port = self.config.tts.get("port", 8080)
+                    timeout = self.config.tts.get("server_timeout", 60)
+                    threading.Thread(
+                        target=self._wait_tts_background,
+                        args=(port, timeout),
+                        daemon=True,
+                    ).start()
+            except Exception as e:
+                logger.warning(f"Failed to start TTS server: {e}")
+                self._tts_engine = None
+
         self.capture.start()
         self._running = True
         self._thread = threading.Thread(target=self._processing_loop, daemon=True)
@@ -515,6 +712,12 @@ class VoicePipeline:
         self._executor.shutdown(wait=False)
         self.capture.stop()
         self.asr_engine.unload()
+        if self._tts_engine is not None:
+            try:
+                self._tts_engine.unload()
+            except Exception:
+                pass
+        self._stop_tts_server()
         self.vad.reset()
         self._set_state(PipelineState.IDLE)
         logger.info("Voice pipeline stopped")
