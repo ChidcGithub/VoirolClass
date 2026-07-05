@@ -5,7 +5,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey)](https://www.microsoft.com/windows)
-[![Version](https://img.shields.io/badge/version-0.2.0--preview-white)]()
+[![Version](https://img.shields.io/badge/version-0.2.3-white)]()
 [![Build](https://github.com/ChidcGithub/VoirolClass/actions/workflows/build.yml/badge.svg)](https://github.com/ChidcGithub/VoirolClass/actions/workflows/build.yml)
 
 > [中文文档](README_zh.md)
