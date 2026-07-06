@@ -27,6 +27,68 @@ def _get_embedder(model_path: str = None):
     return _EMBEDDER
 
 
+def _embed_with_extra_inputs(embedder, audio: np.ndarray) -> np.ndarray:
+    """Handle ONNX models that require extra inputs (sr, h, c) beyond the
+    primary feature tensor, by constructing the feed dict manually."""
+    from speakeronnx.embedder import compute_fbank
+
+    entry = embedder.entry
+    session = embedder._session
+    onnx_inputs = session.get_inputs()
+    primary_name = onnx_inputs[0].name
+
+    # Compute features (same logic as speakeronnx embed())
+    if entry is None or entry.frontend == "fbank80":
+        feats = compute_fbank(
+            audio,
+            sample_rate=embedder.sample_rate,
+            num_mel_bins=entry.num_mel_bins if entry else 80,
+            frame_length_ms=entry.frame_length_ms if entry else 25.0,
+            frame_shift_ms=entry.frame_shift_ms if entry else 10.0,
+            dither=0.0,
+            apply_cmn=True,
+        )
+    elif entry.frontend == "raw":
+        feats = audio
+    else:
+        raise ValueError(f"Unknown frontend: {entry.frontend!r}")
+
+    # Shape the input
+    if entry and entry.frontend == "raw":
+        feats_in = feats[np.newaxis, np.newaxis, :].astype(np.float32)
+    elif entry and entry.input_layout == "BFT":
+        feats_in = feats.T[np.newaxis, :, :].astype(np.float32)
+    else:
+        feats_in = feats[np.newaxis, :, :].astype(np.float32)
+
+    # Build feed dict with all required inputs
+    feed_dict = {}
+    for inp in onnx_inputs:
+        if inp.name == primary_name:
+            feed_dict[inp.name] = feats_in
+        elif inp.name == "sr":
+            feed_dict[inp.name] = np.array([embedder.sample_rate], dtype=np.int64)
+        elif inp.name in ("h", "c"):
+            shape = tuple(d if d is not None and d > 0 else 1 for d in inp.shape)
+            feed_dict[inp.name] = np.zeros(shape, dtype=np.float32)
+        else:
+            shape = tuple(d if d is not None and d > 0 else 1 for d in inp.shape)
+            feed_dict[inp.name] = np.zeros(shape, dtype=np.float32)
+
+    if hasattr(embedder, "_output_name"):
+        output_name = embedder._output_name
+    else:
+        output_name = session.get_outputs()[0].name
+
+    out = session.run([output_name], feed_dict)
+    emb = out[0].ravel().astype(np.float32)
+
+    norm = np.linalg.norm(emb)
+    if norm > 0:
+        emb /= norm
+    return emb
+
+
 def extract_embedding(
     audio: np.ndarray,
     sample_rate: int = 16000,
@@ -38,7 +100,17 @@ def extract_embedding(
         from scipy import signal
         n = int(len(audio) * embedder.sample_rate / sample_rate)
         audio = signal.resample(audio, n).astype(np.float32)
-    emb = embedder.embed(audio)
+    try:
+        emb = embedder.embed(audio)
+    except ValueError as e:
+        msg = str(e)
+        if "missing from input feed" in msg or "Required inputs" in msg:
+            logger.warning(
+                "ONNX model requires extra inputs (%s), using manual feed dict", msg
+            )
+            emb = _embed_with_extra_inputs(embedder, audio)
+        else:
+            raise
     if tag:
         print(f"[DEBUG {tag}] emb_dim={len(emb)}, first5={emb[:5].round(4).tolist()}, "
               f"norm={np.linalg.norm(emb):.4f}")
