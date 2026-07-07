@@ -69,10 +69,10 @@ def _embed_with_extra_inputs(embedder, audio: np.ndarray) -> np.ndarray:
         elif inp.name == "sr":
             feed_dict[inp.name] = np.array([embedder.sample_rate], dtype=np.int64)
         elif inp.name in ("h", "c"):
-            shape = tuple(d if d is not None and d > 0 else 1 for d in inp.shape)
+            shape = tuple(d if isinstance(d, (int, float)) and d > 0 else 1 for d in inp.shape)
             feed_dict[inp.name] = np.zeros(shape, dtype=np.float32)
         else:
-            shape = tuple(d if d is not None and d > 0 else 1 for d in inp.shape)
+            shape = tuple(d if isinstance(d, (int, float)) and d > 0 else 1 for d in inp.shape)
             feed_dict[inp.name] = np.zeros(shape, dtype=np.float32)
 
     if hasattr(embedder, "_output_name"):
