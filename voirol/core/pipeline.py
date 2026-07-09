@@ -88,7 +88,22 @@ class VoicePipeline:
         self._ring_buffer: list[np.ndarray] = []
         self._rms_peak = 0.01
         self._hotkey_handle = None
+        self._ai_matcher: AIMatcher | None = None
+        self._file_navigator = None
+        self._agent_engine: AgentEngine | None = None
+        self._tts_engine: MossApiEngine | None = None
+        self._tts_process: subprocess.Popen | None = None
 
+        self._init_audio(config)
+        self._init_voice(config)
+        self._init_asr(config)
+        self._setup_commands()
+        self._init_matcher(config)
+        self._init_ai(config)
+        self._init_tts(config)
+        self._init_bindings(config)
+
+    def _init_audio(self, config: Config):
         sr = config.general["sample_rate"]
         block = config.general["block_size"]
         rb_seconds = self.config.voice.get("ring_buffer_seconds", 2.0)
@@ -118,6 +133,7 @@ class VoicePipeline:
             logger.warning("Silero VAD model not found. Voice detection disabled.")
         self._asr_ready = False
 
+    def _init_voice(self, config: Config):
         voice_cfg = config.voice
         self.verifier = SpeakerVerifier(
             threshold=voice_cfg["verification_threshold"],
@@ -127,6 +143,7 @@ class VoicePipeline:
             enrollment_dir=voice_cfg["enrollment_dir"],
         )
 
+    def _init_asr(self, config: Config):
         asr_cfg = config.asr
         engine_type = asr_cfg.get("engine", "sensevoice")
         if engine_type == "baidu":
@@ -158,7 +175,7 @@ class VoicePipeline:
                 use_itn=asr_cfg.get("sensevoice_use_itn", False),
             )
 
-        self._setup_commands()
+    def _init_matcher(self, config: Config):
         cmd_cfg = config.commands
         self.matcher = CommandMatcher(
             self._cmd_registry,
@@ -166,84 +183,84 @@ class VoicePipeline:
             threshold=cmd_cfg["fuzzy_threshold"],
         )
 
+    def _init_ai(self, config: Config):
         ai_cfg = config.ai
         agent_cfg = config.agent
         ai_enabled = ai_cfg.get("enabled") and ai_cfg.get("api_key")
 
-        self._ai_matcher: AIMatcher | None = None
-        self._file_navigator = None
-        self._agent_engine: AgentEngine | None = None
-
-        if ai_enabled:
-            llm_engine = OpenAIEngine(
-                api_url=ai_cfg.get("api_url", "https://api.deepseek.com/v1"),
-                api_key=ai_cfg.get("api_key", ""),
-                model=ai_cfg.get("model", "deepseek-chat"),
-            )
-
-            self._ai_matcher = AIMatcher(
-                engine=llm_engine,
-                registry=self._cmd_registry,
-                system_prompt=ai_cfg.get("system_prompt", ""),
-                temperature=ai_cfg.get("temperature", 0.1),
-                timeout=ai_cfg.get("timeout", 10),
-            )
-            logger.info("AI command matcher enabled")
-
-            from voirol.command.file_navigator import FileNavigator
-            from voirol.command.actions import set_file_navigator, set_ai_router_engine
-            self._file_navigator = FileNavigator(
-                engine=llm_engine,
-                max_depth=config.file.get("ai_search_depth", 5),
-                status_callback=self._on_navigator_status,
-            )
-            set_file_navigator(self._file_navigator)
-            set_ai_router_engine(llm_engine)
-            logger.info("File navigator enabled")
-
-            from voirol.agent.file_ops import set_shared_engine
-            set_shared_engine(llm_engine, self._file_navigator, config.file.get("search_dirs"))
-
-            if agent_cfg.get("enabled"):
-                try:
-                    self._agent_engine = AgentEngine(
-                        screen_analyzer=ScreenAnalyzer(
-                            ocr_lang=agent_cfg.get("ocr_lang", "chi_sim+eng"),
-                        ),
-                        skill_registry=self._build_agent_skills(),
-                        llm_engine=llm_engine,
-                        max_steps=agent_cfg.get("max_steps", 30),
-                        temperature=agent_cfg.get("temperature", 0.1),
-                        timeout=agent_cfg.get("timeout", 15),
-                    )
-                    set_current_engine(self._agent_engine)
-                    logger.info("Agent engine enabled")
-                    self._agent_engine.on_step(lambda skill, reasoning, result: (
-                        [cb(f"[agent] {skill}: {result[:80]}") for cb in self._action_callbacks]
-                    ))
-                except Exception as e:
-                    logger.warning(f"Failed to initialize agent engine: {e}")
-                    self._agent_engine = None
-            else:
-                logger.info("Agent engine disabled")
-        else:
+        if not ai_enabled:
             logger.info("AI services disabled (no api_key)")
+            return
 
-        self._tts_engine: MossApiEngine | None = None
-        self._tts_process: subprocess.Popen | None = None
+        llm_engine = OpenAIEngine(
+            api_url=ai_cfg.get("api_url", "https://api.deepseek.com/v1"),
+            api_key=ai_cfg.get("api_key", ""),
+            model=ai_cfg.get("model", "deepseek-chat"),
+        )
+
+        self._ai_matcher = AIMatcher(
+            engine=llm_engine,
+            registry=self._cmd_registry,
+            system_prompt=ai_cfg.get("system_prompt", ""),
+            temperature=ai_cfg.get("temperature", 0.1),
+            timeout=ai_cfg.get("timeout", 10),
+        )
+        logger.info("AI command matcher enabled")
+
+        from voirol.command.file_navigator import FileNavigator
+        from voirol.command.actions import set_file_navigator, set_ai_router_engine
+        self._file_navigator = FileNavigator(
+            engine=llm_engine,
+            max_depth=config.file.get("ai_search_depth", 5),
+            status_callback=self._on_navigator_status,
+        )
+        set_file_navigator(self._file_navigator)
+        set_ai_router_engine(llm_engine)
+        logger.info("File navigator enabled")
+
+        from voirol.agent.file_ops import set_shared_engine
+        set_shared_engine(llm_engine, self._file_navigator, config.file.get("search_dirs"))
+
+        if not agent_cfg.get("enabled"):
+            logger.info("Agent engine disabled")
+            return
+
+        try:
+            self._agent_engine = AgentEngine(
+                screen_analyzer=ScreenAnalyzer(
+                    ocr_lang=agent_cfg.get("ocr_lang", "chi_sim+eng"),
+                ),
+                skill_registry=self._build_agent_skills(),
+                llm_engine=llm_engine,
+                max_steps=agent_cfg.get("max_steps", 30),
+                temperature=agent_cfg.get("temperature", 0.1),
+                timeout=agent_cfg.get("timeout", 15),
+            )
+            set_current_engine(self._agent_engine)
+            logger.info("Agent engine enabled")
+            self._agent_engine.on_step(lambda skill, reasoning, result: (
+                [cb(f"[agent] {skill}: {result[:80]}") for cb in self._action_callbacks]
+            ))
+        except Exception as e:
+            logger.warning(f"Failed to initialize agent engine: {e}")
+            self._agent_engine = None
+
+    def _init_tts(self, config: Config):
         tts_cfg = config.tts
-        if tts_cfg.get("enabled"):
-            try:
-                self._tts_engine = MossApiEngine(
-                    host=tts_cfg.get("host", "127.0.0.1"),
-                    port=tts_cfg.get("port", 8080),
-                    voice=tts_cfg.get("voice", "Xiaoyu"),
-                )
-                logger.info("TTS engine initialized")
-            except Exception as e:
-                logger.warning(f"Failed to initialize TTS engine: {e}")
-                self._tts_engine = None
+        if not tts_cfg.get("enabled"):
+            return
+        try:
+            self._tts_engine = MossApiEngine(
+                host=tts_cfg.get("host", "127.0.0.1"),
+                port=tts_cfg.get("port", 8080),
+                voice=tts_cfg.get("voice", "Xiaoyu"),
+            )
+            logger.info("TTS engine initialized")
+        except Exception as e:
+            logger.warning(f"Failed to initialize TTS engine: {e}")
+            self._tts_engine = None
 
+    def _init_bindings(self, config: Config):
         from voirol.command.actions import set_default_browser, set_search_engine, set_file_search_dirs, set_agent_engine
         if self._agent_engine is not None:
             set_agent_engine(self._agent_engine)
@@ -560,6 +577,17 @@ class VoicePipeline:
             self._set_state(PipelineState.IDLE)
             return
 
+        text = self._verify_and_transcribe(full_audio, sr)
+        if text is None:
+            return
+
+        if self._try_agent_await(text):
+            return
+
+        self._match_and_dispatch(text)
+        self._set_state(PipelineState.IDLE)
+
+    def _verify_and_transcribe(self, full_audio: np.ndarray, sr: int) -> str | None:
         if self._verbose:
             logger.debug(t("verify.running"))
 
@@ -574,7 +602,7 @@ class VoicePipeline:
             if self._verbose:
                 logger.debug(t("verify.skipping_asr"))
             self._set_state(PipelineState.IDLE)
-            return
+            return None
 
         self._set_state(PipelineState.PROCESSING)
 
@@ -582,7 +610,7 @@ class VoicePipeline:
             if self._verbose:
                 logger.debug(t("asr.not_ready"))
             self._set_state(PipelineState.IDLE)
-            return
+            return None
 
         if self._verbose:
             logger.debug(t("asr.running"))
@@ -605,32 +633,38 @@ class VoicePipeline:
             if self._verbose:
                 logger.debug(t("asr.empty"))
             self._set_state(PipelineState.IDLE)
-            return
+            return None
 
         if not is_verified and self._log_asr_unverified:
             if self._verbose:
                 logger.debug(t("cmd.unverified_print"))
             self._set_state(PipelineState.IDLE)
-            return
+            return None
 
-        if self._agent_engine and self._agent_engine.awaiting_answer:
-            try:
-                result = agent_execute(text)
-                if isinstance(result, str) and result.startswith("[ASK_USER]"):
-                    question = result[len("[ASK_USER] "):]
-                    with self._callback_lock:
-                        cbs = list(self._action_callbacks)
-                    for cb in cbs:
-                        try:
-                            cb(f"[询问] {question}")
-                        except Exception as e:
-                            logger.error(f"Action callback error: {e}")
-                    self.speak(question)
-            except Exception as e:
-                logger.error(f"Agent resume failed: {e}")
-            self._set_state(PipelineState.IDLE)
-            return
+        return text
 
+    def _try_agent_await(self, text: str) -> bool:
+        if not self._agent_engine or not self._agent_engine.awaiting_answer:
+            return False
+
+        try:
+            result = agent_execute(text)
+            if isinstance(result, str) and result.startswith("[ASK_USER]"):
+                question = result[len("[ASK_USER] "):]
+                with self._callback_lock:
+                    cbs = list(self._action_callbacks)
+                for cb in cbs:
+                    try:
+                        cb(f"[询问] {question}")
+                    except Exception as e:
+                        logger.error(f"Action callback error: {e}")
+                self.speak(question)
+        except Exception as e:
+            logger.error(f"Agent resume failed: {e}")
+        self._set_state(PipelineState.IDLE)
+        return True
+
+    def _match_and_dispatch(self, text: str):
         cmd, param = self.matcher.match_with_param(text)
         if cmd is None and self._ai_matcher is not None:
             ai_cmd = self._ai_matcher.match(text)
@@ -638,65 +672,70 @@ class VoicePipeline:
                 cmd = ai_cmd
                 param = text if cmd.capture_param else None
         if cmd:
-            if self._verbose:
-                logger.debug(t("cmd.matched", cmd_id=cmd.id, description=cmd.description))
-            desc = cmd.description
-            if cmd.capture_param and param:
-                desc = f"{desc}: {param}"
-            with self._callback_lock:
-                cbs_act = list(self._action_callbacks)
-                cbs_cmd = list(self._command_callbacks)
-            for cb in cbs_act:
-                try:
-                    cb(f"→ {desc}")
-                except Exception as e:
-                    logger.error(f"Action callback error: {e}")
+            self._execute_command(cmd, param, text)
+        else:
+            self._fallback_agent(text)
+
+    def _execute_command(self, cmd, param, text: str):
+        if self._verbose:
+            logger.debug(t("cmd.matched", cmd_id=cmd.id, description=cmd.description))
+        desc = cmd.description
+        if cmd.capture_param and param:
+            desc = f"{desc}: {param}"
+        with self._callback_lock:
+            cbs_act = list(self._action_callbacks)
+            cbs_cmd = list(self._command_callbacks)
+        for cb in cbs_act:
+            try:
+                cb(f"→ {desc}")
+            except Exception as e:
+                logger.error(f"Action callback error: {e}")
+        for cb in cbs_cmd:
+            try:
+                cb(f"cmd:{desc}")
+            except Exception as e:
+                logger.error(f"Command callback error: {e}")
+        try:
+            ask_user_result = None
+            if cmd.capture_param:
+                if cmd.id == "agent":
+                    ask_user_result = cmd.action(text)
+                else:
+                    cmd.action(param or "")
+            else:
+                cmd.action()
+            if isinstance(ask_user_result, str) and ask_user_result.startswith("[ASK_USER]"):
+                question = ask_user_result[len("[ASK_USER] "):]
+                for cb in cbs_act:
+                    try:
+                        cb(f"[询问] {question}")
+                    except Exception as e:
+                        logger.error(f"Action callback error: {e}")
+                self.speak(question)
             for cb in cbs_cmd:
                 try:
-                    cb(f"cmd:{desc}")
+                    cb(cmd.id)
                 except Exception as e:
                     logger.error(f"Command callback error: {e}")
-            try:
-                ask_user_result = None
-                if cmd.capture_param:
-                    if cmd.id == "agent":
-                        ask_user_result = cmd.action(text)
-                    else:
-                        cmd.action(param or "")
-                else:
-                    cmd.action()
-                if isinstance(ask_user_result, str) and ask_user_result.startswith("[ASK_USER]"):
-                    question = ask_user_result[len("[ASK_USER] "):]
-                    for cb in cbs_act:
-                        try:
-                            cb(f"[询问] {question}")
-                        except Exception as e:
-                            logger.error(f"Action callback error: {e}")
-                    self.speak(question)
-                for cb in cbs_cmd:
-                    try:
-                        cb(cmd.id)
-                    except Exception as e:
-                        logger.error(f"Command callback error: {e}")
-            except Exception as e:
-                logger.error(f"Command execution failed: {e}")
-        else:
-            if self._verbose:
-                logger.debug(t("cmd.no_match"))
-            if self._agent_engine:
-                try:
-                    result = agent_execute(text)
-                    with self._callback_lock:
-                        cbs = list(self._action_callbacks)
-                    for cb in cbs:
-                        try:
-                            cb(f"[agent] {text}")
-                        except Exception as e:
-                            logger.error(f"Action callback error: {e}")
-                except Exception as e:
-                    logger.error(f"Agent fallback failed: {e}")
+        except Exception as e:
+            logger.error(f"Command execution failed: {e}")
 
-        self._set_state(PipelineState.IDLE)
+    def _fallback_agent(self, text: str):
+        if self._verbose:
+            logger.debug(t("cmd.no_match"))
+        if not self._agent_engine:
+            return
+        try:
+            result = agent_execute(text)
+            with self._callback_lock:
+                cbs = list(self._action_callbacks)
+            for cb in cbs:
+                try:
+                    cb(f"[agent] {text}")
+                except Exception as e:
+                    logger.error(f"Action callback error: {e}")
+        except Exception as e:
+            logger.error(f"Agent fallback failed: {e}")
 
     def _processing_loop(self):
         while self._running:
