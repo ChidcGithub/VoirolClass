@@ -3,7 +3,7 @@ import subprocess
 import threading
 
 import numpy as np
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QIcon
 from PyQt6.QtWidgets import (
     QApplication,
@@ -35,7 +35,7 @@ from voirol.core.config import save_config
 
 from voirol.core.pipeline import VoicePipeline
 from voirol.ai.matcher import DEFAULT_SYSTEM_PROMPT
-from voirol.gui.theme import Theme, apply_theme, detect_system_theme
+from voirol.gui.theme import Theme, apply_theme, resolve_theme
 from voirol.voice import model_download as md
 from voirol.utils.i18n import get_language, set_language, t
 from voirol.utils.logger import get_logger
@@ -83,8 +83,17 @@ class SettingsDialog(QDialog):
         self._add_log_tab()
         self._add_about_tab()
 
+        self._save_timer = QTimer(self)
+        self._save_timer.setSingleShot(True)
+        self._save_timer.setInterval(500)
+        self._save_timer.timeout.connect(self._do_save_config)
 
+    def _debounce_save(self):
+        if not self._save_timer.isActive():
+            self._save_timer.start()
 
+    def _do_save_config(self):
+        save_config(self.pipeline.config)
     def _add_voice_tab(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
@@ -255,14 +264,9 @@ class SettingsDialog(QDialog):
         self._asr_engine_combo.blockSignals(False)
 
     def _service_btn_style(self, running: bool) -> str:
-        cfg_theme = self.pipeline.config.ui.get("theme", "system")
-        if cfg_theme == "system":
-            from voirol.gui.theme import detect_system_theme
-            t_val = detect_system_theme().value
-        else:
-            t_val = cfg_theme
+        theme = resolve_theme(self.pipeline.config.ui.get("theme", "system"))
 
-        if t_val == "dark":
+        if theme.value == "dark":
             bg = "#555" if running else "#e0e0e0"
             fg = "#e0e0e0" if running else "#333"
             return f"QPushButton {{ background: {bg}; color: {fg}; font-weight: bold; padding: 8px; border-radius: 5px; }}"
@@ -421,11 +425,7 @@ class SettingsDialog(QDialog):
         logger.info(f"Max utterance seconds set to {value}")
 
     def _apply_current_theme(self):
-        cfg_theme = self.pipeline.config.ui.get("theme", "system")
-        if cfg_theme == "system":
-            theme = detect_system_theme()
-        else:
-            theme = Theme(cfg_theme)
+        theme = resolve_theme(self.pipeline.config.ui.get("theme", "system"))
         br = self.pipeline.config.ui.get("border_radius", 5)
         apply_theme(self, theme, br)
 
@@ -980,14 +980,14 @@ class SettingsDialog(QDialog):
 
     def _on_ai_config_changed(self):
         self.pipeline.config.ai["enabled"] = self._ai_enabled_cb.isChecked()
-        self.pipeline.config.ai["api_url"] = self._ai_api_url_input.text().strip()
-        self.pipeline.config.ai["api_key"] = self._ai_api_key_input.text().strip()
-        self.pipeline.config.ai["model"] = self._ai_model_input.text().strip()
+        self.pipeline.config.ai["api_url"] = self._ai_api_url_input.text()
+        self.pipeline.config.ai["api_key"] = self._ai_api_key_input.text()
+        self.pipeline.config.ai["model"] = self._ai_model_input.text()
         self.pipeline.config.ai["temperature"] = self._ai_temp_spin.value()
         self.pipeline.config.ai["timeout"] = self._ai_timeout_spin.value()
         prompt = self._ai_prompt_edit.toPlainText()
         self.pipeline.config.ai["system_prompt"] = "" if prompt == DEFAULT_SYSTEM_PROMPT else prompt
-        save_config(self.pipeline.config)
+        self._debounce_save()
 
     def _on_ai_reset_prompt(self):
         self._ai_prompt_edit.setPlainText(DEFAULT_SYSTEM_PROMPT)
@@ -1512,6 +1512,8 @@ class SettingsDialog(QDialog):
         self._log_view.clear()
 
     def closeEvent(self, event):
+        self._save_timer.stop()
+        self._do_save_config()
         self._cleanup_threads()
         from voirol.utils.logger import _log_signal
         try:
@@ -1521,6 +1523,8 @@ class SettingsDialog(QDialog):
         super().closeEvent(event)
 
     def done(self, r):
+        self._save_timer.stop()
+        self._do_save_config()
         self._cleanup_threads()
         from voirol.utils.logger import _log_signal
         try:

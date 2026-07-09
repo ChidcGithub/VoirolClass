@@ -3,7 +3,7 @@ import shlex
 import subprocess
 
 from voirol.utils.logger import get_logger
-from voirol.command.maps import APP_MAP
+from voirol.command.actions import FILE_SEARCH_DIRS
 
 logger = get_logger("agent.file_ops")
 
@@ -118,12 +118,7 @@ def skill_write_file(params: dict) -> str:
         return f"Error writing '{path}': {e}"
 
 
-_FILE_NAVIGATOR_SEARCH_DIRS = [
-    os.path.expanduser("~/Desktop"),
-    os.path.expanduser("~/Documents"),
-    os.path.expanduser("~/Downloads"),
-    os.getcwd(),
-]
+_FILE_NAVIGATOR_SEARCH_DIRS: list[str] = FILE_SEARCH_DIRS
 
 
 _shared_llm_engine = None

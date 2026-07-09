@@ -29,6 +29,12 @@ def detect_system_theme() -> Theme:
         return Theme.DARK
 
 
+def resolve_theme(cfg_theme: str) -> Theme:
+    if cfg_theme == "system":
+        return detect_system_theme()
+    return Theme(cfg_theme)
+
+
 def theme_qss(theme: Theme, br: int = 5) -> str:
     if theme == Theme.LIGHT:
         return LIGHT_QSS.format(br=br)

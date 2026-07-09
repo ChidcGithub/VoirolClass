@@ -8,7 +8,7 @@ from datetime import datetime
 import numpy as np
 import requests
 
-from voirol.asr.engine import ASREngine
+from voirol.asr.engine import ASREngine, asr_audio_to_int16
 from voirol.utils.logger import get_logger
 
 logger = get_logger("asr.tencent")
@@ -96,10 +96,7 @@ class TencentEngine(ASREngine):
         return headers, payload
 
     def transcribe(self, audio: np.ndarray, sample_rate: int = 16000) -> str:
-        if audio.dtype != np.int16:
-            audio_int16 = (audio * 32767).clip(-32768, 32767).astype(np.int16)
-        else:
-            audio_int16 = audio
+        audio_int16 = asr_audio_to_int16(audio)
 
         pcm_bytes = audio_int16.tobytes()
         data_b64 = base64.b64encode(pcm_bytes).decode("utf-8")

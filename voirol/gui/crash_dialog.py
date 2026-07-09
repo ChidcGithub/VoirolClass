@@ -77,7 +77,7 @@ class CrashDialog(QDialog):
 
         btn_layout.addStretch()
 
-        exit_btn = QPushButton("Exit")
+        exit_btn = QPushButton(t("quit"))
         exit_btn.setStyleSheet("""
             QPushButton {
                 padding: 6px 18px;

@@ -1,13 +1,14 @@
 import multiprocessing
 import os
 import sys
+import atexit
 import traceback
 
 import numpy as np
 
 from voirol.core.config import load_config
 from voirol.core.pipeline import VoicePipeline
-from voirol.gui.theme import Theme, apply_theme, detect_system_theme
+from voirol.gui.theme import Theme, apply_theme, resolve_theme
 from voirol.gui.tray import create_tray_icon
 from voirol.utils.i18n import t
 from voirol.utils.logger import get_logger, setup_logger
@@ -95,6 +96,14 @@ def main():
 
     sys.excepthook = _crash_handler
 
+    def _cleanup_keyboard():
+        try:
+            import keyboard
+            keyboard.unhook_all()
+        except Exception:
+            pass
+    atexit.register(_cleanup_keyboard)
+
     from voirol.gui.splash_spawn import SplashProcess
     splash = SplashProcess()
     splash.set_status(t("splash.starting"))
@@ -102,11 +111,7 @@ def main():
     global pipeline
     pipeline = None
     try:
-        cfg_theme = config.ui.get("theme", "system")
-        if cfg_theme == "system":
-            theme = detect_system_theme()
-        else:
-            theme = Theme(cfg_theme)
+        theme = resolve_theme(config.ui.get("theme", "system"))
         apply_theme(app, theme, config.ui.get("border_radius", 5))
 
         font_id = QFontDatabase.addApplicationFont(resource_path("fonts/GSF.ttf"))
