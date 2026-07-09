@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Syntax check
+        run: python -m compileall -q voirol/ main.py
+
+      - name: Import verification
+        run: |
+          python -c "
+          import sys
+          sys.path.insert(0, '.')
+          from voirol.ai.engine import AIEngine
+          from voirol.ai.openai_engine import OpenAIEngine
+          from voirol.ai.matcher import AIMatcher
+          from voirol.asr.engine import ASREngine, asr_audio_to_int16
+          from voirol.asr.sensevoice_engine import SenseVoiceEngine
+          from voirol.audio.capture import AudioCapture
+          from voirol.audio.processor import preprocess
+          from voirol.audio.vad import SileroVAD
+          from voirol.agent.engine import AgentEngine
+          from voirol.agent.file_ops import skill_open_app, skill_run_command, skill_read_file, skill_write_file
+          from voirol.agent.mouse import skill_click
+          from voirol.agent.keyboard import skill_type_text
+          from voirol.core.config import Config, load_config, save_config
+          from voirol.core.pipeline import VoicePipeline
+          from voirol.command.actions import open_url, FILE_SEARCH_DIRS
+          from voirol.command.maps import APP_MAP, SITE_MAP
+          from voirol.command.matcher import CommandMatcher
+          from voirol.command.registry import CommandRegistry
+          from voirol.gui.base_indicator import BaseGlIndicatorWidget
+          from voirol.gui.capsule import ActivityCapsule
+          from voirol.gui.indicator import ListeningIndicator
+          from voirol.gui.theme import Theme, resolve_theme, get_theme_manager
+          from voirol.voice.verifier import SpeakerVerifier, extract_embedding
+          from voirol.voice.enrollment import EnrollmentManager, SpeakerProfile
+          from voirol.utils.i18n import t
+          from voirol.utils.logger import get_logger
+          from voirol.utils.resources import resource_path
+          from voirol.utils.ai_parse import parse_ai_json_response
+          print('All imports OK')
+          "

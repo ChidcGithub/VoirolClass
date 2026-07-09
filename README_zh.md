@@ -9,7 +9,7 @@
   [![License](https://img.shields.io/badge/license-GPLv3-blue?style=flat-square)](LICENSE)
   [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey?style=flat-square)](https://www.microsoft.com/windows)
   [![Version](https://img.shields.io/github/v/release/ChidcGithub/VoirolClass?style=flat-square&color=white)](https://github.com/ChidcGithub/VoirolClass/releases)
-  [![Build](https://img.shields.io/github/actions/workflow/status/ChidcGithub/VoirolClass/build.yml?style=flat-square&label=build)](https://github.com/ChidcGithub/VoirolClass/actions)
+  [![Build](https://img.shields.io/github/actions/workflow/status/ChidcGithub/VoirolClass/ci.yml?style=flat-square&label=build)](https://github.com/ChidcGithub/VoirolClass/actions)
   [![ASR](https://img.shields.io/badge/ASR-SenseVoice%20(离线)-informational?style=flat-square)](https://github.com/modelscope/FunASR)
   [![声纹验证](https://img.shields.io/badge/声纹-CAM%2B%2B-informational?style=flat-square)](https://github.com/BlueSpaceX/speakeronnx)
   [![AI Agent](https://img.shields.io/badge/Agent-LLM%20驱动-8A2BE2?style=flat-square)](voirol/agent/)
@@ -110,8 +110,8 @@ python main.py
 | 段落 | 键 | 默认值 | 说明 |
 |------|----|--------|------|
 | `[general]` | `language` | `en` | UI 语言 (`en` / `zh`) |
-| `[vad]` | `threshold` | `0.25` | 语音概率阈值 |
-| | `silence_duration` | `1.0` | 判定结束的静音秒数 |
+| `[vad]` | `threshold` | `0.5` | 语音概率阈值 |
+| | `silence_duration` | `0.8` | 判定结束的静音秒数 |
 | `[voice]` | `verification_threshold` | `0.45` | 声纹相似度阈值 |
 | `[asr]` | `engine` | `sensevoice` | `sensevoice` / `baidu` / `azure` / `tencent` |
 | `[commands]` | `match_mode` | `fuzzy` | `exact` / `keyword` / `fuzzy` |
@@ -123,6 +123,12 @@ python main.py
 | `[agent]` | `enabled` | `false` | 启用 AI Agent 多步骤任务 |
 | | `max_steps` | `30` | 单任务最大执行步数 |
 | `[tts]` | `enabled` | `false` | 启用文字转语音输出 |
+| `[ui]` | `theme` | `system` | `light` / `dark` / `system` |
+| | `font_size` | `13` | UI 字体大小 |
+| `[debug]` | `verbose` | `false` | 输出详细的管线日志 |
+| `[download]` | `mirror_url` | `""` | GitHub 模型下载镜像 |
+| | `hf_mirror_url` | `""` | HuggingFace 镜像地址 |
+| `[logging]` | `level` | `INFO` | 日志级别 (`DEBUG` / `INFO` / `WARNING` / `ERROR`) |
 
 完整配置参考 `config.toml.example`。
 

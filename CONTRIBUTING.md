@@ -192,7 +192,12 @@ Teachers can now register by reading 5 sentences.
 
 ## Testing
 
-This project does not yet have automated tests. For now, please manually verify:
+CI runs on every push and PR:
+
+- **Syntax check**: `python -m compileall` ensures no syntax errors
+- **Import verification**: All core modules are importable
+
+For manual verification, please check:
 
 1. **Audio pipeline**: Speech is detected, verified, and transcribed correctly
 2. **Command matching**: All 3 tiers (exact, keyword, fuzzy) work as expected

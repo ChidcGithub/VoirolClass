@@ -9,7 +9,7 @@
   [![License](https://img.shields.io/badge/license-GPLv3-blue?style=flat-square)](LICENSE)
   [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey?style=flat-square)](https://www.microsoft.com/windows)
   [![Version](https://img.shields.io/github/v/release/ChidcGithub/VoirolClass?style=flat-square&color=white)](https://github.com/ChidcGithub/VoirolClass/releases)
-  [![Build](https://img.shields.io/github/actions/workflow/status/ChidcGithub/VoirolClass/build.yml?style=flat-square&label=build)](https://github.com/ChidcGithub/VoirolClass/actions)
+  [![Build](https://img.shields.io/github/actions/workflow/status/ChidcGithub/VoirolClass/ci.yml?style=flat-square&label=build)](https://github.com/ChidcGithub/VoirolClass/actions)
   [![ASR](https://img.shields.io/badge/ASR-SenseVoice%20(offline)-informational?style=flat-square)](https://github.com/modelscope/FunASR)
   [![Speaker Verification](https://img.shields.io/badge/Verification-CAM%2B%2B-informational?style=flat-square)](https://github.com/BlueSpaceX/speakeronnx)
   [![AI Agent](https://img.shields.io/badge/Agent-LLM%20powered-8A2BE2?style=flat-square)](voirol/agent/)
@@ -110,8 +110,8 @@ Key settings in `config.toml`:
 | Section | Key | Default | Description |
 |---------|-----|---------|-------------|
 | `[general]` | `language` | `en` | UI language (`en` / `zh`) |
-| `[vad]` | `threshold` | `0.25` | Speech probability threshold |
-| | `silence_duration` | `1.0` | Seconds of silence to end utterance |
+| `[vad]` | `threshold` | `0.5` | Speech probability threshold |
+| | `silence_duration` | `0.8` | Seconds of silence to end utterance |
 | `[voice]` | `verification_threshold` | `0.45` | Similarity threshold for speaker match |
 | `[asr]` | `engine` | `sensevoice` | `sensevoice`, `baidu`, `azure`, or `tencent` |
 | `[commands]` | `match_mode` | `fuzzy` | `exact` / `keyword` / `fuzzy` |
@@ -123,6 +123,12 @@ Key settings in `config.toml`:
 | `[agent]` | `enabled` | `false` | Enable AI agent for multi-step tasks |
 | | `max_steps` | `30` | Max execution steps per task |
 | `[tts]` | `enabled` | `false` | Enable text-to-speech output |
+| `[ui]` | `theme` | `system` | `light` / `dark` / `system` |
+| | `font_size` | `13` | UI font size |
+| `[debug]` | `verbose` | `false` | Log detailed pipeline output |
+| `[download]` | `mirror_url` | `""` | GitHub mirror for model downloads |
+| | `hf_mirror_url` | `""` | HuggingFace mirror URL |
+| `[logging]` | `level` | `INFO` | Log level (`DEBUG` / `INFO` / `WARNING` / `ERROR`) |
 
 See `config.toml.example` for the full configuration reference.
 
