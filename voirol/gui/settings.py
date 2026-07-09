@@ -1601,6 +1601,10 @@ def _on_theme_changed(dialog: SettingsDialog, theme_value: str):
     dialog.pipeline.config.ui["theme"] = theme_value
     save_config(dialog.pipeline.config)
     dialog._apply_current_theme()
+    from voirol.gui.theme import resolve_theme, get_theme_manager
+    theme = resolve_theme(theme_value)
+    br = dialog.pipeline.config.ui.get("border_radius", 5)
+    get_theme_manager().broadcast(theme, br)
     logger.info(f"Theme changed to: {theme_value}")
 
 

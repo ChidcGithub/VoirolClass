@@ -1,6 +1,6 @@
 from enum import Enum
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QObject, Qt, pyqtSignal
 from PyQt6.QtWidgets import QApplication, QWidget
 
 
@@ -8,6 +8,23 @@ class Theme(Enum):
     LIGHT = "light"
     DARK = "dark"
     SYSTEM = "system"
+
+
+class ThemeManager(QObject):
+    changed = pyqtSignal(Theme, int)
+
+    def broadcast(self, theme: Theme, br: int):
+        self.changed.emit(theme, br)
+
+
+_theme_manager: ThemeManager | None = None
+
+
+def get_theme_manager() -> ThemeManager:
+    global _theme_manager
+    if _theme_manager is None:
+        _theme_manager = ThemeManager()
+    return _theme_manager
 
 
 def detect_system_theme() -> Theme:
@@ -41,7 +58,7 @@ def theme_qss(theme: Theme, br: int = 5) -> str:
     return DARK_QSS.format(br=br)
 
 
-def apply_theme(widget: QWidget, theme: Theme, br: int = 5):
+def apply_theme(widget: QWidget, theme: Theme, br: int = 5) -> None:
     widget.setStyleSheet(theme_qss(theme, br))
 
 
