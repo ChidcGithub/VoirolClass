@@ -1,5 +1,5 @@
+import json
 import os
-import pickle
 import threading
 from dataclasses import dataclass, field
 
@@ -9,6 +9,14 @@ import soundfile as sf
 from voirol.utils.logger import get_logger
 
 logger = get_logger("voice.enrollment")
+
+
+def _np_to_list(arr: np.ndarray) -> list:
+    return arr.tolist() if isinstance(arr, np.ndarray) else arr
+
+
+def _list_to_np(lst: list) -> np.ndarray:
+    return np.array(lst, dtype=np.float32)
 
 
 @dataclass
@@ -29,26 +37,46 @@ class EnrollmentManager:
         self._load_all()
 
     def _profile_path(self, name: str) -> str:
-        return os.path.join(self.enrollment_dir, f"{name}.pkl")
+        return os.path.join(self.enrollment_dir, f"{name}.json")
 
     def _load_all(self):
         if not os.path.isdir(self.enrollment_dir):
             return
         for fname in os.listdir(self.enrollment_dir):
-            if fname.endswith(".pkl"):
+            if fname.endswith(".json"):
                 path = os.path.join(self.enrollment_dir, fname)
                 try:
-                    with open(path, "rb") as f:
-                        profile = pickle.load(f)
+                    with open(path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    profile = SpeakerProfile(
+                        name=data["name"],
+                        embedding=_list_to_np(data["embedding"]),
+                        utterances=data.get("utterances", 0),
+                    )
                     self._profiles[profile.name] = profile
                     logger.info(f"Loaded profile: {profile.name}")
                 except Exception as e:
                     logger.warning(f"Failed to load {fname}: {e}")
+            if fname.endswith(".pkl"):
+                path = os.path.join(self.enrollment_dir, fname)
+                try:
+                    with open(path, "rb") as f:
+                        import pickle
+                        profile = pickle.load(f)
+                    self._profiles[profile.name] = profile
+                    logger.info(f"Loaded legacy profile: {profile.name}")
+                except Exception as e:
+                    logger.warning(f"Failed to load legacy {fname}: {e}")
 
     def save_profile(self, profile: SpeakerProfile):
         path = self._profile_path(profile.name)
-        with open(path, "wb") as f:
-            pickle.dump(profile, f)
+        data = {
+            "name": profile.name,
+            "embedding": _np_to_list(profile.embedding),
+            "utterances": profile.utterances,
+        }
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f)
         with self._lock:
             self._profiles[profile.name] = profile
         logger.info(f"Saved profile: {profile.name}")
@@ -65,6 +93,9 @@ class EnrollmentManager:
         path = self._profile_path(name)
         if os.path.exists(path):
             os.remove(path)
+        legacy = os.path.join(self.enrollment_dir, f"{name}.pkl")
+        if os.path.exists(legacy):
+            os.remove(legacy)
         with self._lock:
             self._profiles.pop(name, None)
         logger.info(f"Deleted profile: {name}")
@@ -76,6 +107,9 @@ class EnrollmentManager:
             path = self._profile_path(name)
             if os.path.exists(path):
                 os.remove(path)
+            legacy = os.path.join(self.enrollment_dir, f"{name}.pkl")
+            if os.path.exists(legacy):
+                os.remove(legacy)
         with self._lock:
             for name in names:
                 self._profiles.pop(name, None)

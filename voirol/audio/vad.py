@@ -73,7 +73,11 @@ class SileroVAD:
             self._sr_name: np.array([self.sample_rate], dtype=np.int64),
             self._state_name: self._state,
         }
-        out = self._session.run(None, ort_inputs)
+        try:
+            out = self._session.run(None, ort_inputs)
+        except (RuntimeError, onnxruntime.capi.onnxruntime_pybind11_state.RuntimeException) as e:
+            logger.error(f"VAD ONNX inference failed: {e}")
+            return 0.0
         speech_prob = float(out[0][0][0])
         self._state = out[1]
 

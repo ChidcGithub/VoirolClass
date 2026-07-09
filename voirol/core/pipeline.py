@@ -78,13 +78,16 @@ class VoicePipeline:
         self._audio_level_callbacks: list[Callable[[float], None]] = []
         self._asr_callbacks: list[Callable[[str], None]] = []
         self._action_callbacks: list[Callable[[str], None]] = []
+        self._callback_lock = threading.Lock()
         self._audio_buffer: list[np.ndarray] = []
         self._audio_lock = threading.Lock()
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
         self._vad_buffer: list[float] = []
         self._in_speech = False
+        self._speech_lock = threading.Lock()
         self._ring_buffer: list[np.ndarray] = []
         self._rms_peak = 0.01
+        self._hotkey_handle = None
 
         sr = config.general["sample_rate"]
         block = config.general["block_size"]
@@ -197,6 +200,9 @@ class VoicePipeline:
             set_file_navigator(self._file_navigator)
             set_ai_router_engine(llm_engine)
             logger.info("File navigator enabled")
+
+            from voirol.agent.file_ops import set_shared_engine
+            set_shared_engine(llm_engine, self._file_navigator, file_cfg.get("search_dirs"))
 
             if agent_cfg.get("enabled"):
                 try:
@@ -423,34 +429,46 @@ class VoicePipeline:
             try:
                 self._tts_process.terminate()
                 self._tts_process.wait(timeout=10)
-            except Exception:
+            except subprocess.TimeoutExpired:
                 try:
                     self._tts_process.kill()
-                except Exception:
-                    pass
+                    self._tts_process.wait(timeout=5)
+                except Exception as e:
+                    logger.warning(f"Failed to kill TTS process: {e}")
+            except ProcessLookupError:
+                pass
+            except Exception as e:
+                logger.warning(f"Error stopping TTS server: {e}")
             self._tts_process = None
             logger.info("TTS server stopped")
 
     def on_state_change(self, callback: Callable[[PipelineState], None]):
-        self._state_callbacks.append(callback)
+        with self._callback_lock:
+            self._state_callbacks.append(callback)
 
     def on_command(self, callback: Callable[[str], None]):
-        self._command_callbacks.append(callback)
+        with self._callback_lock:
+            self._command_callbacks.append(callback)
 
     def on_audio_level(self, callback: Callable[[float], None]):
-        self._audio_level_callbacks.append(callback)
+        with self._callback_lock:
+            self._audio_level_callbacks.append(callback)
 
     def on_asr_text(self, callback: Callable[[str], None]):
-        self._asr_callbacks.append(callback)
+        with self._callback_lock:
+            self._asr_callbacks.append(callback)
 
     def on_action(self, callback: Callable[[str], None]):
-        self._action_callbacks.append(callback)
+        with self._callback_lock:
+            self._action_callbacks.append(callback)
 
     def _set_state(self, state: PipelineState):
         if not self._running:
             return
         self.state = state
-        for cb in self._state_callbacks:
+        with self._callback_lock:
+            cbs = list(self._state_callbacks)
+        for cb in cbs:
             try:
                 cb(state)
             except Exception as e:
@@ -464,7 +482,9 @@ class VoicePipeline:
             level = 0.0
         else:
             level = min(1.0, (rms - noise_floor) / (self._rms_peak - noise_floor + 1e-8))
-        for cb in self._audio_level_callbacks:
+        with self._callback_lock:
+            cbs = list(self._audio_level_callbacks)
+        for cb in cbs:
             try:
                 cb(level)
             except Exception as e:
@@ -477,9 +497,14 @@ class VoicePipeline:
         prob = self.vad.process_chunk(processed)
         self.vad.is_speech_segment(prob)
 
+        with self._speech_lock:
+            in_speech = self._in_speech
+            speech_start = self.vad._is_speech
+
         if self.vad._is_speech:
-            if not self._in_speech:
-                self._in_speech = True
+            if not in_speech:
+                with self._speech_lock:
+                    self._in_speech = True
                 self._speech_start_time = time.time()
                 with self._audio_lock:
                     self._audio_buffer = list(self._ring_buffer)
@@ -489,24 +514,26 @@ class VoicePipeline:
                 self._set_state(PipelineState.LISTENING)
                 self._emit_audio_level(processed)
                 if self._verbose:
-                    print(t("vad.speech_start", n=prepend_n))
+                    logger.debug(t("vad.speech_start", n=prepend_n))
             else:
                 with self._audio_lock:
                     self._audio_buffer.append(processed.copy())
                 self._emit_audio_level(processed)
 
                 if self._check_utterance_timeout():
-                    self._in_speech = False
+                    with self._speech_lock:
+                        self._in_speech = False
                     self._set_state(PipelineState.VERIFYING)
                     self._executor.submit(self._handle_speech_segment)
         else:
-            if self._in_speech:
+            if in_speech:
                 if self.ptt_active:
                     return
-                self._in_speech = False
+                with self._speech_lock:
+                    self._in_speech = False
                 duration = time.time() - self._speech_start_time
                 if self._verbose:
-                    print(t("vad.speech_end", duration=duration, n=len(self._audio_buffer)))
+                    logger.debug(t("vad.speech_end", duration=duration, n=len(self._audio_buffer)))
                 self._set_state(PipelineState.VERIFYING)
                 self._executor.submit(self._handle_speech_segment)
             else:
@@ -529,23 +556,23 @@ class VoicePipeline:
         sr = self.config.general["sample_rate"]
         if len(full_audio) < sr * 0.3:
             if self._verbose:
-                print(t("verify.too_short", duration=len(full_audio) / sr))
+                logger.debug(t("verify.too_short", duration=len(full_audio) / sr))
             self._set_state(PipelineState.IDLE)
             return
 
         if self._verbose:
-            print(t("verify.running"))
+            logger.debug(t("verify.running"))
 
         is_verified, sim = self.verifier.verify(full_audio, sr)
 
         threshold = self.config.voice.get("verification_threshold", 0.45)
         if self._verbose:
             status = t("verify.passed") if is_verified else t("verify.failed")
-            print(t("verify.result", sim=sim, threshold=threshold, status=status))
+            logger.debug(t("verify.result", sim=sim, threshold=threshold, status=status))
 
         if not is_verified and not self._log_asr_unverified:
             if self._verbose:
-                print(t("verify.skipping_asr"))
+                logger.debug(t("verify.skipping_asr"))
             self._set_state(PipelineState.IDLE)
             return
 
@@ -553,34 +580,36 @@ class VoicePipeline:
 
         if not self._asr_ready:
             if self._verbose:
-                print(t("asr.not_ready"))
+                logger.debug(t("asr.not_ready"))
             self._set_state(PipelineState.IDLE)
             return
 
         if self._verbose:
-            print(t("asr.running"))
+            logger.debug(t("asr.running"))
 
         text = self.asr_engine.transcribe(full_audio, sr)
 
         if text:
-            for cb in self._asr_callbacks:
+            with self._callback_lock:
+                cbs = list(self._asr_callbacks)
+            for cb in cbs:
                 try:
                     cb(text)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.error(f"ASR callback error: {e}")
 
         if self._verbose:
-            print(t("asr.result", text=text))
+            logger.debug(t("asr.result", text=text))
 
         if not text:
             if self._verbose:
-                print(t("asr.empty"))
+                logger.debug(t("asr.empty"))
             self._set_state(PipelineState.IDLE)
             return
 
         if not is_verified and self._log_asr_unverified:
             if self._verbose:
-                print(t("cmd.unverified_print"))
+                logger.debug(t("cmd.unverified_print"))
             self._set_state(PipelineState.IDLE)
             return
 
@@ -589,11 +618,13 @@ class VoicePipeline:
                 result = agent_execute(text)
                 if isinstance(result, str) and result.startswith("[ASK_USER]"):
                     question = result[len("[ASK_USER] "):]
-                    for cb in self._action_callbacks:
+                    with self._callback_lock:
+                        cbs = list(self._action_callbacks)
+                    for cb in cbs:
                         try:
                             cb(f"[询问] {question}")
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.error(f"Action callback error: {e}")
                     self.speak(question)
             except Exception as e:
                 logger.error(f"Agent resume failed: {e}")
@@ -608,17 +639,23 @@ class VoicePipeline:
                 param = text if cmd.capture_param else None
         if cmd:
             if self._verbose:
-                print(t("cmd.matched", cmd_id=cmd.id, description=cmd.description))
+                logger.debug(t("cmd.matched", cmd_id=cmd.id, description=cmd.description))
             desc = cmd.description
             if cmd.capture_param and param:
                 desc = f"{desc}: {param}"
-            for cb in self._action_callbacks:
+            with self._callback_lock:
+                cbs_act = list(self._action_callbacks)
+                cbs_cmd = list(self._command_callbacks)
+            for cb in cbs_act:
                 try:
                     cb(f"→ {desc}")
-                except Exception:
-                    pass
-            for cb in self._command_callbacks:
-                cb(f"cmd:{desc}")
+                except Exception as e:
+                    logger.error(f"Action callback error: {e}")
+            for cb in cbs_cmd:
+                try:
+                    cb(f"cmd:{desc}")
+                except Exception as e:
+                    logger.error(f"Command callback error: {e}")
             try:
                 ask_user_result = None
                 if cmd.capture_param:
@@ -630,13 +667,13 @@ class VoicePipeline:
                     cmd.action()
                 if isinstance(ask_user_result, str) and ask_user_result.startswith("[ASK_USER]"):
                     question = ask_user_result[len("[ASK_USER] "):]
-                    for cb in self._action_callbacks:
+                    for cb in cbs_act:
                         try:
                             cb(f"[询问] {question}")
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.error(f"Action callback error: {e}")
                     self.speak(question)
-                for cb in self._command_callbacks:
+                for cb in cbs_cmd:
                     try:
                         cb(cmd.id)
                     except Exception as e:
@@ -645,15 +682,17 @@ class VoicePipeline:
                 logger.error(f"Command execution failed: {e}")
         else:
             if self._verbose:
-                print(t("cmd.no_match"))
+                logger.debug(t("cmd.no_match"))
             if self._agent_engine:
                 try:
                     result = agent_execute(text)
-                    for cb in self._action_callbacks:
+                    with self._callback_lock:
+                        cbs = list(self._action_callbacks)
+                    for cb in cbs:
                         try:
                             cb(f"[agent] {text}")
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.error(f"Action callback error: {e}")
                 except Exception as e:
                     logger.error(f"Agent fallback failed: {e}")
 
@@ -710,6 +749,14 @@ class VoicePipeline:
         logger.info("Stopping voice pipeline...")
         self._running = False
         self._executor.shutdown(wait=False)
+
+        try:
+            import keyboard as kb
+            kb.unhook_all()
+        except Exception:
+            pass
+        self._hotkey_handle = None
+
         self.capture.stop()
         self.asr_engine.unload()
         if self._tts_engine is not None:
@@ -748,27 +795,29 @@ class VoicePipeline:
         self.ptt_active = True
         with self._audio_lock:
             self._audio_buffer = []
-        self._in_speech = True
+        with self._speech_lock:
+            self._in_speech = True
         self._speech_start_time = time.time()
         self._set_state(PipelineState.LISTENING)
         if self._verbose:
-            print(t("ptt.pressed"))
+            logger.debug(t("ptt.pressed"))
         logger.debug("PTT: listening started")
 
     def _ptt_released(self):
         with self._audio_lock:
             self.ptt_active = False
-            self._in_speech = False
-            duration = time.time() - self._speech_start_time
             has_audio = bool(self._audio_buffer)
+        with self._speech_lock:
+            self._in_speech = False
+        duration = time.time() - self._speech_start_time
         if has_audio:
             if self._verbose:
-                print(t("ptt.released", duration=duration))
+                logger.debug(t("ptt.released", duration=duration))
             self._set_state(PipelineState.VERIFYING)
             self._executor.submit(self._handle_speech_segment)
         else:
             if self._verbose:
-                print(t("ptt.no_audio"))
+                logger.debug(t("ptt.no_audio"))
             self._set_state(PipelineState.IDLE)
         logger.debug("PTT: listening ended")
 
@@ -781,7 +830,7 @@ class VoicePipeline:
                 mods = "+".join(hotkey_parts[:-1])
                 key = hotkey_parts[-1]
 
-                kb.add_hotkey(ptt_key, self._ptt_pressed, suppress=True)
+                self._hotkey_handle = kb.add_hotkey(ptt_key, self._ptt_pressed, suppress=True)
                 kb.on_release_key(
                     key,
                     lambda e: self._ptt_released()

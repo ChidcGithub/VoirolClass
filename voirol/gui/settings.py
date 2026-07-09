@@ -642,8 +642,6 @@ class SettingsDialog(QDialog):
             self._tesseract_thread.finished.connect(self._tesseract_thread.deleteLater)
             self._tesseract_thread.start()
         except Exception as e:
-            import sys
-            print(f"[Tesseract] FAILED TO START: {e}", file=sys.stderr, flush=True)
             logger.error(f"Tesseract install failed to start: {e}")
             self._tesseract_install_btn.setEnabled(True)
             self._tesseract_check_btn.setEnabled(True)
@@ -1513,6 +1511,34 @@ class SettingsDialog(QDialog):
         self._log_buffer.clear()
         self._log_view.clear()
 
+    def closeEvent(self, event):
+        self._cleanup_threads()
+        from voirol.utils.logger import _log_signal
+        try:
+            _log_signal.emitted.disconnect(self._on_log_message)
+        except (TypeError, RuntimeError):
+            pass
+        super().closeEvent(event)
+
+    def done(self, r):
+        self._cleanup_threads()
+        from voirol.utils.logger import _log_signal
+        try:
+            _log_signal.emitted.disconnect(self._on_log_message)
+        except (TypeError, RuntimeError):
+            pass
+        super().done(r)
+
+    def _cleanup_threads(self):
+        for attr in ("_dl_thread", "_tesseract_thread"):
+            thread = getattr(self, attr, None)
+            if thread is not None and thread.isRunning():
+                try:
+                    thread.quit()
+                    thread.wait(2000)
+                except Exception:
+                    pass
+
     def _add_about_tab(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
@@ -1745,7 +1771,5 @@ class _TesseractInstallThread(QThread):
             self.progress.emit(100)
             self.finished.emit(True)
         except Exception as e:
-            import sys
-            print(f"[Tesseract] ERROR: {e}", file=sys.stderr, flush=True)
             logger.error(f"Tesseract install failed: {e}")
             self.finished.emit(False)

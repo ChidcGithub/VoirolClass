@@ -1,7 +1,5 @@
-import json
 import os
 import re
-from pathlib import Path
 
 import numpy as np
 import onnxruntime as ort
@@ -50,6 +48,8 @@ class SenseVoiceEngine(ASREngine):
         self._feature_dim = 80
         self._neg_mean: np.ndarray | None = None
         self._inv_stddev: np.ndarray | None = None
+        self._mel_fb: np.ndarray | None = None
+        self._mel_fb_key: tuple | None = None
 
     def is_ready(self) -> bool:
         return self._session is not None
@@ -124,17 +124,10 @@ class SenseVoiceEngine(ASREngine):
         self._meta.clear()
         logger.info("SenseVoice engine unloaded")
 
-    def _extract_fbank(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
-        audio = audio.flatten().astype(np.float32)
-        n_fft = 512
-        hop = 160
-        win = 400
-        f, t, Sxx = spectrogram(
-            audio, fs=sample_rate,
-            nperseg=win, noverlap=win - hop, nfft=n_fft,
-        )
-
-        n_mels = self._feature_dim
+    def _get_filterbank(self, sample_rate: int, n_fft: int, n_mels: int) -> np.ndarray:
+        key = (sample_rate, n_fft, n_mels)
+        if self._mel_fb_key == key and self._mel_fb is not None:
+            return self._mel_fb
         mel_min, mel_max = 0.0, sample_rate / 2.0
         mel_pts = np.linspace(
             2595 * np.log10(1 + mel_min / 700),
@@ -152,6 +145,23 @@ class SenseVoiceEngine(ASREngine):
                 fb[m_ - 1, k] = (k - l) / (c_ - l) if c_ > l else 0.0
             for k in range(c_, r):
                 fb[m_ - 1, k] = (r - k) / (r - c_) if r > c_ else 0.0
+
+        self._mel_fb = fb
+        self._mel_fb_key = key
+        return fb
+
+    def _extract_fbank(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
+        audio = audio.flatten().astype(np.float32)
+        n_fft = 512
+        hop = 160
+        win = 400
+        f, t, Sxx = spectrogram(
+            audio, fs=sample_rate,
+            nperseg=win, noverlap=win - hop, nfft=n_fft,
+        )
+
+        n_mels = self._feature_dim
+        fb = self._get_filterbank(sample_rate, n_fft, n_mels)
 
         mel_spec = fb @ Sxx
         mel_spec = np.maximum(mel_spec, 1e-10)
@@ -179,9 +189,7 @@ class SenseVoiceEngine(ASREngine):
         return np.array(frames, dtype=np.float32)
 
     def _decode_ctc(self, logits: np.ndarray) -> list[int]:
-        probs = np.exp(logits - np.max(logits, axis=-1, keepdims=True))
-        probs /= np.sum(probs, axis=-1, keepdims=True)
-        ids = np.argmax(probs[0], axis=-1)
+        ids = np.argmax(logits[0], axis=-1)
 
         prev = -1
         result = []
@@ -231,12 +239,16 @@ class SenseVoiceEngine(ASREngine):
         text_norm = self._with_itn if self.use_itn else self._without_itn
         language = np.array([self._lang_id], dtype=np.int32)
 
-        outs = self._session.run(None, {
-            "x": lfr[np.newaxis, :, :].astype(np.float32),
-            "x_length": np.array([lfr.shape[0]], dtype=np.int32),
-            "language": language,
-            "text_norm": np.array([text_norm], dtype=np.int32),
-        })
+        try:
+            outs = self._session.run(None, {
+                "x": lfr[np.newaxis, :, :].astype(np.float32),
+                "x_length": np.array([lfr.shape[0]], dtype=np.int32),
+                "language": language,
+                "text_norm": np.array([text_norm], dtype=np.int32),
+            })
+        except (RuntimeError, ort.capi.onnxruntime_pybind11_state.RuntimeException) as e:
+            logger.error(f"ASR ONNX inference failed: {e}")
+            return ""
         logits = outs[0]
 
         ids = self._decode_ctc(logits)

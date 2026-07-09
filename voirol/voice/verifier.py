@@ -80,7 +80,11 @@ def _embed_with_extra_inputs(embedder, audio: np.ndarray) -> np.ndarray:
     else:
         output_name = session.get_outputs()[0].name
 
-    out = session.run([output_name], feed_dict)
+    try:
+        out = session.run([output_name], feed_dict)
+    except (RuntimeError, KeyError) as e:
+        logger.error(f"Speaker ONNX inference failed: {e}")
+        raise ValueError(f"ONNX inference failed: {e}") from e
     emb = out[0].ravel().astype(np.float32)
 
     norm = np.linalg.norm(emb)
@@ -112,8 +116,8 @@ def extract_embedding(
         else:
             raise
     if tag:
-        print(f"[DEBUG {tag}] emb_dim={len(emb)}, first5={emb[:5].round(4).tolist()}, "
-              f"norm={np.linalg.norm(emb):.4f}")
+        logger.debug(f"[{tag}] emb_dim={len(emb)}, first5={emb[:5].round(4).tolist()}, "
+                      f"norm={np.linalg.norm(emb):.4f}")
     return emb
 
 
@@ -191,8 +195,8 @@ def create_profile_from_audio(
     if norm > 1e-10:
         avg_embedding = avg_embedding / norm
 
-    print(f"[DEBUG profile] avg_norm_before_l2={norm:.4f}, "
-          f"first5={avg_embedding[:5].round(4).tolist()}")
+    logger.debug(f"profile avg_norm_before_l2={norm:.4f}, "
+                  f"first5={avg_embedding[:5].round(4).tolist()}")
 
     logger.info(
         f"Created profile '{name}' from {len(audio_files)} utterances, "

@@ -6,6 +6,9 @@ SetCompressor lzma
 
 !define PRODUCT_NAME "VoirolClass"
 !define PRODUCT_PUBLISHER "VoirolClass"
+!ifndef VERSION
+  !define VERSION "0.2.5"
+!endif
 
 Name "${PRODUCT_NAME} ${VERSION}"
 OutFile "VoirolClass-${VERSION}-Setup.exe"

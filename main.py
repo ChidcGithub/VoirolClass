@@ -16,6 +16,7 @@ from voirol.voice.model_download import check_model_status
 
 logger = get_logger("main")
 
+pipeline: VoicePipeline | None = None
 
 _LOG_DIR = os.path.join(
     os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
@@ -72,12 +73,24 @@ def main():
             sys.__excepthook__(exc_type, exc_value, exc_tb)
             return
         details = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
-        print(details, file=sys.stderr)
+        logger.critical(f"Unhandled exception: {details}")
+        global pipeline
+        if pipeline:
+            try:
+                pipeline.stop()
+            except Exception:
+                pass
+        from PyQt6.QtCore import QThread
         from PyQt6.QtWidgets import QApplication
         qapp = QApplication.instance()
         if qapp is not None:
-            from voirol.gui.crash_dialog import CrashDialog
-            CrashDialog(details).exec()
+            thread = QThread.currentThread()
+            if thread == qapp.thread():
+                from voirol.gui.crash_dialog import CrashDialog
+                try:
+                    CrashDialog(details).exec()
+                except Exception:
+                    pass
         sys.exit(1)
 
     sys.excepthook = _crash_handler
@@ -86,6 +99,7 @@ def main():
     splash = SplashProcess()
     splash.set_status(t("splash.starting"))
 
+    global pipeline
     pipeline = None
     try:
         cfg_theme = config.ui.get("theme", "system")
@@ -156,10 +170,17 @@ def main():
 
     if pipeline:
         pipeline.stop()
+    try:
+        import keyboard as kb
+        kb.unhook_all()
+    except Exception:
+        pass
     sys.exit(exit_code)
 
 
 def _run_splash(port: int):
+    authkey_hex = sys.argv[3] if len(sys.argv) > 3 else ""
+    authkey = bytes.fromhex(authkey_hex) if authkey_hex else b"voirol"
     from multiprocessing.connection import Client
     from PyQt6.QtCore import QTimer
     from PyQt6.QtGui import QSurfaceFormat
@@ -175,7 +196,12 @@ def _run_splash(port: int):
     splash = StartupSplash()
     splash.show()
 
-    conn = Client(("localhost", port), authkey=b"voirol")
+    try:
+        conn = Client(("localhost", port), authkey=authkey)
+    except Exception:
+        app.quit()
+        sys.exit(1)
+
     close_pending = False
 
     def poll():
