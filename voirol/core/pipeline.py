@@ -202,7 +202,7 @@ class VoicePipeline:
             logger.info("File navigator enabled")
 
             from voirol.agent.file_ops import set_shared_engine
-            set_shared_engine(llm_engine, self._file_navigator, file_cfg.get("search_dirs"))
+            set_shared_engine(llm_engine, self._file_navigator, config.file.get("search_dirs"))
 
             if agent_cfg.get("enabled"):
                 try:
