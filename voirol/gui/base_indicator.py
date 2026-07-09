@@ -19,10 +19,10 @@ class BaseGlIndicatorWidget(QWidget):
     _state_signal = pyqtSignal(object)
     _level_signal = pyqtSignal(float)
 
-    IDLE_W = 60
-    IDLE_H = 4
-    EXPAND_W = 360
-    BASE_H = 64
+    IDLE_W = 68
+    IDLE_H = 8
+    EXPAND_W = 440
+    BASE_H = 52
 
     def __init__(self):
         super().__init__()

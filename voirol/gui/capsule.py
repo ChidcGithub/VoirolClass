@@ -10,8 +10,8 @@ class ActivityCapsule(BaseGlIndicatorWidget):
     _action_signal = pyqtSignal(str)
     _tts_signal = pyqtSignal(str)
 
-    EXPAND_W = 360
-    BASE_H = 68
+    EXPAND_W = 440
+    BASE_H = 52
     HIDE_DELAY_MS = 5000
 
     def __init__(self):
@@ -35,13 +35,13 @@ class ActivityCapsule(BaseGlIndicatorWidget):
         self._asr_label.setStyleSheet("""
             QLabel {
                 background: transparent;
-                color: white;
-                font-size: 14px;
-                font-weight: bold;
-                padding: 0px 12px;
+                color: rgba(255, 255, 255, 235);
+                font-size: 15px;
+                font-weight: 500;
+                padding: 0px 16px;
             }
         """)
-        self._asr_label.setMaximumWidth(self.EXPAND_W - 20)
+        self._asr_label.setMaximumWidth(self.EXPAND_W - 24)
         self._asr_label.hide()
 
         self._action_label = QLabel(self)
@@ -50,12 +50,13 @@ class ActivityCapsule(BaseGlIndicatorWidget):
         self._action_label.setStyleSheet("""
             QLabel {
                 background: transparent;
-                color: rgba(255, 255, 255, 180);
-                font-size: 12px;
-                padding: 0px 12px;
+                color: rgba(255, 255, 255, 150);
+                font-size: 13px;
+                font-weight: 400;
+                padding: 0px 16px;
             }
         """)
-        self._action_label.setMaximumWidth(self.EXPAND_W - 20)
+        self._action_label.setMaximumWidth(self.EXPAND_W - 24)
         self._action_label.hide()
 
         self._hide_timer = QTimer(self)
