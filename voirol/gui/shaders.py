@@ -23,6 +23,8 @@ uniform sampler2D u_text;
 uniform int   u_show_text;
 uniform float u_text_alpha;
 
+// ── helpers ─────────────────────────────────────────────────
+
 vec3 hsv2rgb(vec3 c) {
     vec4 K = vec4(1.0, 2.0/3.0, 1.0/3.0, 3.0);
     vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
@@ -51,11 +53,24 @@ float sdRoundRect(vec2 p, vec2 sz, float r) {
     return min(max(d.x, d.y), 0.0) + length(max(d, 0.0)) - r;
 }
 
-vec3 capsuleEdge(vec2 p, vec2 hs) {
-    float angle = atan(p.y / max(hs.y, 1e-5) * 0.45, p.x);
-    float hue = fract(angle / 6.28318 + u_time * 0.035);
-    return hsv2rgb(vec3(hue, 0.55, 0.85));
+// Siri waveform envelope: tapers at edges
+float siriEnvelope(float x) {
+    float ax = abs(x);
+    return pow(4.0 / (4.0 + pow(ax, 4.0)), 4.0);
 }
+
+// ── iridescent edge color ──────────────────────────────────
+
+vec3 edgeColor(vec2 p, vec2 hs) {
+    float angle = atan(p.y / max(hs.y, 1e-5) * 0.3, p.x);
+    float dist  = length(p / hs);
+    float hue   = fract(angle / 6.28318 + u_time * 0.025 + dist * 0.35);
+    float sat   = 0.45 + 0.25 * sin(dist * 2.5 + u_time * 0.4);
+    float val   = 0.75 + 0.25 * sin(dist * 3.0 + u_time * 0.6);
+    return hsv2rgb(vec3(hue, sat, val));
+}
+
+// ── main ────────────────────────────────────────────────────
 
 void main() {
     vec2 uv = v_uv;
@@ -68,14 +83,14 @@ void main() {
     float h_exp  = 52.0;
     float w = mix(w_idle, w_exp, u_transition);
     float h = mix(h_idle, h_exp, u_transition);
-    vec2 hs = vec2(w, h) * 0.5;
-    float r = h * 0.5;
+    vec2  hs = vec2(w, h) * 0.5;
+    float r  = h * 0.5;
 
     vec2 p = (uv - 0.5) * u_resolution;
 
-    // background
-    float n = noise(uv * u_resolution / 12.0 + u_time * 0.2) * 0.02;
-    vec3 bg = vec3(0.01 + n);
+    // background — dark with subtle noise
+    float bg_noise = noise(uv * u_resolution / 16.0 + u_time * 0.15) * 0.018;
+    vec3 bg = vec3(0.005 + bg_noise);
 
     float d = sdRoundRect(p, hs, r);
     float mask = 1.0 - smoothstep(0.0, aa * 2.5, d);
@@ -87,80 +102,134 @@ void main() {
 
     vec3 color = bg;
 
-    // glass fill
-    float soft = 1.0 - smoothstep(0.0, hs.y * 0.5, abs(d));
-    vec3 glass = mix(vec3(0.02, 0.03, 0.05), vec3(0.06, 0.08, 0.12), soft);
-    color = mix(bg, glass, mask * 0.78);
-
-    // edge glow — subdued
+    // ── glass fill with vertical gradient ──────────────────
     {
-        vec3 ec = capsuleEdge(p, hs);
-        float glow = exp(-abs(d) * 4.0 / (hs.y + 1.0)) * 0.35;
-        color += ec * glow;
+        float grad  = smoothstep(-hs.y, hs.y, p.y);  // 0=top, 1=bottom
+        vec3 top_g  = vec3(0.07, 0.08, 0.12);
+        vec3 mid_g  = vec3(0.04, 0.05, 0.08);
+        vec3 bot_g  = vec3(0.02, 0.025, 0.04);
+        float soft  = 1.0 - smoothstep(0.0, hs.y * 0.45, abs(d));
+        vec3 glass  = mix(mix(top_g, mid_g, grad * 0.5), bot_g, grad * 0.7);
+        glass = mix(glass, mid_g, soft * 0.4);
+        // frost grain
+        float grain = (noise(uv * u_resolution / 3.0) - 0.5) * 0.012;
+        glass += grain;
+        color = mix(bg, glass, mask * 0.80);
     }
 
-    // soft border line
+    // ── edge glow: 3-layer ──────────────────────────────────
     {
-        float border = smoothstep(aa * 3.0, aa * 0.5, abs(d));
-        color += vec3(1.0) * border * 0.04;
+        vec3 ec = edgeColor(p, hs);
+        // inner sharp glow
+        float glow1 = exp(-abs(d) * 18.0) * 0.28;
+        // medium soft glow
+        float glow2 = exp(-abs(d) * 4.5 / (hs.y + 1.0)) * 0.32;
+        // outer ambient halo
+        float glow3 = exp(-abs(d) * 1.3 / (hs.y + 1.0)) * 0.18;
+        color += ec * (glow1 + glow2 + glow3);
+
+        // chromatic aberration at edges
+        float ca_fac = exp(-abs(d) * 6.0 / (hs.y + 1.0)) * 0.06;
+        float ca_r = exp(-abs(d - 1.0) * 8.0) * 0.04;
+        float ca_b = exp(-abs(d + 1.0) * 8.0) * 0.04;
+        color += vec3(ca_r, 0.0, ca_b) * ca_fac;
     }
 
-    // top specular
+    // ── top specular highlight ──────────────────────────────
     {
-        float top_hl = smoothstep(0.0, 0.06, -d)
-                     * smoothstep(0.0, 0.35, p.y + hs.y)
-                     * smoothstep(hs.y * 0.55, hs.y * 0.12, p.y);
-        color += vec3(1.0) * top_hl * 0.06;
+        float spec = smoothstep(0.0, 0.08, -d)
+                   * smoothstep(0.0, 0.35, p.y + hs.y)
+                   * smoothstep(hs.y * 0.45, hs.y * 0.08, p.y);
+        color += vec3(1.0, 0.97, 0.90) * spec * 0.10;
     }
 
-    // ── inside content ──
+    // ── inner shadow (bottom) ───────────────────────────────
+    {
+        float inner_d = sdRoundRect(p - vec2(0.0, -hs.y * 0.10), hs * 0.96, r);
+        float inner_shadow = 1.0 - smoothstep(-aa * 3.0, aa * 6.0, inner_d);
+        float shadow_mix = smoothstep(-hs.y * 0.3, -hs.y * 0.05, p.y);
+        color += vec3(0.0) * inner_shadow * 0.09 * shadow_mix;
+    }
+
+    // ── Fresnel reflection ──────────────────────────────────
+    {
+        float fresnel = pow(1.0 - abs(p.y / max(hs.y, 1e-5)) * 0.65, 2.8);
+        color += vec3(1.0, 0.95, 0.88) * fresnel * 0.055;
+    }
+
+    // ── inside content ──────────────────────────────────────
     vec2 cuv = p / max(hs, 1.0);
 
     if (u_state == 0) {
-        // IDLE: faint color bar
-        float ly = -0.72;
+        // IDLE: faint breathing color bar
+        float ly = -0.70;
         float ld = abs(cuv.y - ly);
         float lm = smoothstep(aa * 12.0, aa * 2.0, ld);
-        float br = 0.25 + 0.15 * sin(u_time * 1.0);
-        color += capsuleEdge(p, hs) * br * 0.55 * lm;
+        float br = 0.28 + 0.16 * sin(u_time * 0.9);
+        color += edgeColor(p, hs) * br * 0.60 * lm;
     }
     else if (u_state == 1) {
-        // LISTENING: waveform curves
-        for (int i = 0; i < 3; i++) {
-            float fi = float(i);
-            float lv = u_levels[i];
-            float amp = 0.06 + lv * 0.48;
-            float freq = 5.0 + fi * 0.7 + lv * 2.5;
-            float ph = u_time * (1.3 + lv * 1.2) + fi * 2.1;
-            float y0 = amp * sin(cuv.x * freq + ph);
-            float bw = 0.007 + lv * 0.016;
-            float bm = smoothstep(bw * 2.5, bw * 0.2, abs(cuv.y - y0));
+        // LISTENING: Siri-style multi-curve waveform
+        float env = siriEnvelope(cuv.x * 1.65);
 
-            float hue = fract(fi / 3.0 + u_time * 0.03);
-            vec3 bcol = hsv2rgb(vec3(hue, 0.55, 0.78)) * (0.5 + lv * 0.5);
-            float g = exp(-abs(cuv.y - y0) * 18.0) * lv * 0.35;
-            color += bcol * (bm * 0.82 + g);
+        for (int i = 0; i < 6; i++) {
+            float fi  = float(i);
+            float rf  = hash(vec2(fi, 0.42));  // pseudo-random per curve
+            float rf2 = hash(vec2(fi, 0.87));
+            float amp = 0.04 + rf * 0.35 + u_levels[i % 3] * 0.18;
+            float freq = 4.0 + rf * 3.5 + u_levels[i % 3] * 2.0;
+            float ph = u_time * (1.0 + rf2 * 1.5 + u_levels[i % 3] * 1.2) + fi * 1.8;
+            float y0 = amp * env * sin(cuv.x * freq + ph) * 0.7;
+
+            float bw  = 0.005 + rf * 0.010 + u_levels[i % 3] * 0.010;
+            float bm  = smoothstep(bw * 3.0, bw * 0.15, abs(cuv.y - y0));
+
+            float hue = fract(fi / 6.0 + u_time * 0.025);
+            float sat = 0.50 + rf * 0.30;
+            vec3 bcol = hsv2rgb(vec3(hue, sat, 0.78)) * (0.45 + rf * 0.55);
+            float glow = exp(-abs(cuv.y - y0) * 16.0) * (0.20 + rf * 0.25);
+            color += bcol * (bm * 0.75 + glow * 0.28);
         }
+
+        // center bright dot
+        float cd = length(cuv);
+        float cdm = 1.0 - smoothstep(0.02, 0.06, cd);
+        float cdg = exp(-cd * 22.0) * 0.40;
+        color += vec3(1.0, 0.95, 0.90) * cdm * 0.30;
+        float avg_lv = (u_levels.x + u_levels.y + u_levels.z) / 3.0;
+        color += edgeColor(p, hs) * cdg * avg_lv;
     }
     else if (u_state == 2) {
-        // PROCESSING: breathing dots
-        float sp = 0.24;
-        for (int i = 0; i < 3; i++) {
-            float fi = float(i);
-            float cx = (fi - 1.0) * sp;
-            float cy = sin(u_time * 2.0 + fi * 1.8) * 0.03;
-            float rr = 0.035;
-            float dd = length(cuv - vec2(cx, cy)) - rr;
-            float dm = 1.0 - smoothstep(0.0, aa * 5.0, dd);
-            float br = 0.45 + 0.35 * sin(u_time * 2.8 + fi * 2.0);
-            float hue = fract(fi / 3.0 + u_time * 0.04);
-            vec3 dc = hsv2rgb(vec3(hue, 0.5, 0.72)) * br;
-            float dg = exp(-abs(dd) * 20.0) * 0.3 * br;
-            color += dc * (dm * 0.8 + dg);
+        // PROCESSING: iOS 9 style animated curves
+        float env = siriEnvelope(cuv.x * 2.2);
+
+        for (int i = 0; i < 4; i++) {
+            float fi  = float(i);
+            float rf  = hash(vec2(fi + 0.1, 0.33));
+            float rf2 = hash(vec2(fi + 0.1, 0.91));
+            float amp = 0.03 + rf * 0.22;
+            float freq = 5.5 + rf * 2.5;
+            float ph = u_time * (0.8 + rf2 * 1.2) + fi * 2.2;
+            float y0 = amp * env * sin(cuv.x * freq + ph) * 0.6;
+
+            float bw  = 0.004 + rf * 0.008;
+            float bm  = smoothstep(bw * 3.0, bw * 0.12, abs(cuv.y - y0));
+
+            float hue = fract(fi / 4.0 + u_time * 0.03);
+            float sat = 0.45 + rf * 0.35;
+            vec3 bcol = hsv2rgb(vec3(hue, sat, 0.72)) * (0.40 + rf * 0.60);
+            float glow = exp(-abs(cuv.y - y0) * 18.0) * (0.15 + rf * 0.22);
+            color += bcol * (bm * 0.72 + glow * 0.24);
         }
+
+        // sweeping scan line
+        float sx = fract(u_time * 0.18);
+        float scan = exp(-pow(abs(cuv.x * 0.5 + 0.5 - sx) * 4.0, 2.0));
+        vec3 scan_col = edgeColor(p, hs);
+        color += scan_col * scan * 0.15;
     }
 
-    // text texture
+    // text texture overlay
     if (u_show_text == 1 && u_text_alpha > 0.001) {
         vec2 tuv = (p + hs) / (2.0 * hs);
         vec4 tx = texture(u_text, tuv);
@@ -169,9 +238,9 @@ void main() {
 
     float alpha = mask;
     if (u_state == 0) {
-        alpha = mask * (0.28 + 0.22 * sin(u_time * 0.7));
+        alpha = mask * (0.25 + 0.20 * sin(u_time * 0.7));
     } else {
-        alpha = mask * 0.82;
+        alpha = mask * 0.84;
     }
 
     frag_color = vec4(color, alpha);
