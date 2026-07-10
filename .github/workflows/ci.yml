@@ -49,9 +49,8 @@ jobs:
           from voirol.command.maps import APP_MAP, SITE_MAP
           from voirol.command.matcher import CommandMatcher
           from voirol.command.registry import CommandRegistry
-          from voirol.gui.base_indicator import BaseGlIndicatorWidget
-          from voirol.gui.capsule import ActivityCapsule
-          from voirol.gui.indicator import ListeningIndicator
+          from voirol.gui.capsule import CapsuleWidget
+          from voirol.gui.marquee import MarqueeWidget
           from voirol.gui.theme import Theme, resolve_theme, get_theme_manager
           from voirol.voice.verifier import SpeakerVerifier, extract_embedding
           from voirol.voice.enrollment import EnrollmentManager, SpeakerProfile

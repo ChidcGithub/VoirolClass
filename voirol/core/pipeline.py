@@ -78,6 +78,7 @@ class VoicePipeline:
         self._audio_level_callbacks: list[Callable[[float], None]] = []
         self._asr_callbacks: list[Callable[[str], None]] = []
         self._action_callbacks: list[Callable[[str], None]] = []
+        self._agent_active_callbacks: list[Callable[[bool], None]] = []
         self._callback_lock = threading.Lock()
         self._audio_buffer: list[np.ndarray] = []
         self._audio_lock = threading.Lock()
@@ -479,6 +480,28 @@ class VoicePipeline:
         with self._callback_lock:
             self._action_callbacks.append(callback)
 
+    def on_agent_active(self, callback: Callable[[bool], None]):
+        with self._callback_lock:
+            self._agent_active_callbacks.append(callback)
+
+    def _emit_agent_active(self, active: bool):
+        with self._callback_lock:
+            cbs = list(self._agent_active_callbacks)
+        for cb in cbs:
+            try:
+                cb(active)
+            except Exception as e:
+                logger.error(f"Agent active callback error: {e}")
+
+    def _emit_response(self, text: str):
+        with self._callback_lock:
+            cbs = list(self._action_callbacks)
+        for cb in cbs:
+            try:
+                cb(text)
+            except Exception as e:
+                logger.error(f"Response callback error: {e}")
+
     def _set_state(self, state: PipelineState):
         if not self._running:
             return
@@ -725,8 +748,10 @@ class VoicePipeline:
             logger.debug(t("cmd.no_match"))
         if not self._agent_engine:
             return
+        self._emit_agent_active(True)
         try:
             result = agent_execute(text)
+            self._emit_response(result if isinstance(result, str) else str(result))
             with self._callback_lock:
                 cbs = list(self._action_callbacks)
             for cb in cbs:
@@ -736,6 +761,8 @@ class VoicePipeline:
                     logger.error(f"Action callback error: {e}")
         except Exception as e:
             logger.error(f"Agent fallback failed: {e}")
+        finally:
+            self._emit_agent_active(False)
 
     def _processing_loop(self):
         while self._running:

@@ -152,15 +152,19 @@ def main():
 
         splash.set_status(t("splash.ready"))
 
-        from voirol.gui.capsule import ActivityCapsule
-        capsule = ActivityCapsule()
+        from voirol.gui.capsule import CapsuleWidget
+        from voirol.gui.marquee import MarqueeWidget
+        capsule = CapsuleWidget()
+        marquee = MarqueeWidget()
         splash.close_with_delay(500)
         capsule.show()
         pipeline.on_state_change(lambda s: capsule.set_state(s))
-        pipeline.on_audio_level(lambda lv: capsule.set_level(lv))
-        pipeline.on_asr_text(lambda t: capsule.set_asr(t))
-        pipeline.on_action(lambda t: capsule.set_action(t))
-        pipeline.on_command(lambda c: capsule.set_action(c[4:]) if c.startswith(("nav:", "cmd:")) else None)
+        pipeline.on_audio_level(lambda lv: (
+            capsule.set_level(lv), capsule.tick_levels()
+        )[-1])
+        pipeline.on_asr_text(lambda t: capsule.set_recognized(t))
+        pipeline.on_action(lambda t: capsule.set_response(t))
+        pipeline.on_agent_active(lambda a: marquee.set_active(a))
 
         print(t("app.running"))
         print(t("app.running_hint") + "\n")
