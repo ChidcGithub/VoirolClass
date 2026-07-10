@@ -1,6 +1,6 @@
 import struct
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtOpenGL import (
     QOpenGLBuffer,
     QOpenGLShader,
@@ -17,6 +17,8 @@ from voirol.gui.shaders import VERTEX_SHADER, MARQUEE_FRAGMENT
 
 
 class MarqueeWidget(QOpenGLWidget):
+    _active_signal = pyqtSignal(bool)
+
     def __init__(self):
         super().__init__()
 
@@ -35,6 +37,8 @@ class MarqueeWidget(QOpenGLWidget):
         screen = QApplication.primaryScreen()
         self.setGeometry(screen.geometry())
 
+        self._active_signal.connect(self._on_active_change)
+
         self._program: QOpenGLShaderProgram | None = None
         self._vbo: QOpenGLBuffer | None = None
         self._vao: QOpenGLVertexArrayObject | None = None
@@ -51,6 +55,9 @@ class MarqueeWidget(QOpenGLWidget):
         self._fade_timer.timeout.connect(self._tick_fade)
 
     def set_active(self, active: bool):
+        self._active_signal.emit(active)
+
+    def _on_active_change(self, active: bool):
         if active and self._active < 1.0:
             self._active = 0.0
             self._fade_timer.start()

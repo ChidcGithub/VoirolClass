@@ -41,6 +41,7 @@ _TEXT_CANVAS_H = 104
 class CapsuleWidget(QOpenGLWidget):
     _state_signal = pyqtSignal(int)
     _level_signal = pyqtSignal(float)
+    _text_signal = pyqtSignal(str, bool)
 
     IDLE_W = 68
     IDLE_H = 7
@@ -65,6 +66,7 @@ class CapsuleWidget(QOpenGLWidget):
 
         self._state_signal.connect(self._on_state)
         self._level_signal.connect(self._on_level)
+        self._text_signal.connect(self._on_text_update)
 
         self._state = 0
         self._levels = [0.0, 0.0, 0.0]
@@ -119,19 +121,19 @@ class CapsuleWidget(QOpenGLWidget):
         self._level_signal.emit(max(0.0, min(1.0, level)))
 
     def set_recognized(self, text: str):
-        self._render_text_cpu(text)
-        self._show_text = 1
-        self._text_alpha = 0.0
-        self._fade_timer.start()
-        self.update()
+        self._text_signal.emit(text, False)
 
     def set_response(self, text: str):
+        self._text_signal.emit(text, True)
+
+    def _on_text_update(self, text: str, is_response: bool):
         self._render_text_cpu(text)
         self._show_text = 1
         self._text_alpha = 0.0
         self._fade_timer.start()
-        self._response_timer.start(5000)
         self.update()
+        if is_response:
+            self._response_timer.start(5000)
 
     def _render_text_cpu(self, text: str):
         img = QImage(_TEXT_CANVAS_W, _TEXT_CANVAS_H, QImage.Format.Format_ARGB32)
