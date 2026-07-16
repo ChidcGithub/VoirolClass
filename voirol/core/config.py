@@ -60,6 +60,8 @@ class Config:
         "font_size": 13,
         "border_radius": 5,
         "theme": "system",
+        "seed_color": "#A8C7FA",
+        "dynamic_color": False,
     })
     teacher: dict = field(default_factory=lambda: {
         "current_teacher": "",

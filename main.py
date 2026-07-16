@@ -111,6 +111,15 @@ def main():
     global pipeline
     pipeline = None
     try:
+        # 初始化主题管理器：从 config 加载主题模式、种子色、动态取色
+        from voirol.gui.theme import get_theme_manager
+        mgr = get_theme_manager()
+        mgr.set_seed(config.ui.get("seed_color", "#A8C7FA"), broadcast=False)
+        if config.ui.get("dynamic_color", False):
+            mgr.set_dynamic_color(True, broadcast=False)
+        mgr.set_mode(config.ui.get("theme", "system"), broadcast=False)
+        mgr.apply_to(app)
+
         theme = resolve_theme(config.ui.get("theme", "system"))
         apply_theme(app, theme, config.ui.get("border_radius", 5))
 
@@ -195,15 +204,31 @@ def _run_splash(port: int):
     from PyQt6.QtGui import QSurfaceFormat
     from PyQt6.QtWidgets import QApplication
 
-    app = QApplication(sys.argv)
+    # splash 子进程用 CREATE_NO_WINDOW 启动，崩溃时错误信息会丢失，
+    # 这里把异常写入日志文件方便排查
+    import traceback as _tb
+    _log_dir = os.path.join(
+        os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
+        "VoirolClass", "logs",
+    )
+    os.makedirs(_log_dir, exist_ok=True)
+    _splash_log = os.path.join(_log_dir, "splash_error.log")
 
-    fmt = QSurfaceFormat()
-    fmt.setAlphaBufferSize(8)
-    QSurfaceFormat.setDefaultFormat(fmt)
+    try:
+        app = QApplication(sys.argv)
 
-    from voirol.gui.splash import StartupSplash
-    splash = StartupSplash()
-    splash.show()
+        fmt = QSurfaceFormat()
+        fmt.setAlphaBufferSize(8)
+        QSurfaceFormat.setDefaultFormat(fmt)
+
+        from voirol.gui.splash import StartupSplash
+        splash = StartupSplash()
+        splash.show()
+    except Exception:
+        with open(_splash_log, "w", encoding="utf-8") as f:
+            f.write("Splash init failed:\n")
+            f.write(_tb.format_exc())
+        sys.exit(1)
 
     try:
         conn = Client(("localhost", port), authkey=authkey)

@@ -1,4 +1,24 @@
+from PyQt6.QtCore import QObject, pyqtSignal
+
 _current_lang = "en"
+
+
+class _LanguageNotifier(QObject):
+    """语言变化通知器（全局单例）。
+
+    set_language 时发射 language_changed 信号，订阅者（如 SettingsDialog）
+    可据此调用 retranslate_ui() 实现实时语言切换，无需重启。
+    """
+    language_changed = pyqtSignal(str)  # 参数：新语言代码
+
+
+_lang_notifier = _LanguageNotifier()
+
+
+def language_changed_signal():
+    """返回全局语言变化信号，供外部 connect。"""
+    return _lang_notifier.language_changed
+
 
 _STRINGS = {
     "en": {
@@ -7,7 +27,7 @@ _STRINGS = {
         "voice.history_duration_desc": "Seconds of audio kept before VAD trigger. Longer helps online ASR capture speech start.",
         "voice.max_utterance": "Max Utterance (s)",
         "voice.max_utterance_desc": "Automatically submit speech if VAD doesn't end within this many seconds.",
-        "app.banner_line1": "VoirolClass v0.2.5",
+        "app.banner_line1": "VoirolClass v0.2.8.1",
         "app.banner_line2": "VoirolClass - Voice Controlled Classroom System",
         "app.startup_no_teacher": "No teacher registered yet. Right-click tray icon -> Settings -> Register New Teacher.",
         "app.startup_hint": "      Hotkeys: voice control after registration",
@@ -66,6 +86,7 @@ _STRINGS = {
         "service.stop": "Stop Listening",
         "quit": "Quit",
         "settings.title": "Settings",
+        "settings.saved": "Settings saved",
         "close": "Close",
         "teacher.manage": "Teacher Management",
         "teacher.current": "Current teacher: {name}",
@@ -113,7 +134,10 @@ _STRINGS = {
         "ui.theme_light": "Light",
         "ui.theme_dark": "Dark",
         "ui.restart_hint": "Style changed. Restart the application to apply.",
-        "about.version": "VoirolClass v0.2.5",
+        "ui.seed_color": "Seed Color",
+        "ui.dynamic_color": "Dynamic Color (from wallpaper)",
+        "ui.custom_color": "Custom Color",
+        "about.version": "VoirolClass v0.2.8.1",
         "about.description": "VoirolClass - Voice Controlled Classroom System",
         "about.tech": "Powered by SenseVoice ASR + CAM++ Voiceprint",
         "prompt.title": "Prompt",
@@ -234,9 +258,9 @@ _STRINGS = {
         "voice.history_duration_desc": "VAD 触发前保留的历史音频时长。更长有助于在线识别捕捉语音开头。",
         "voice.max_utterance": "最长语句（秒）",
         "voice.max_utterance_desc": "VAD 持续检测到语音超过此秒数后自动提交。可在嘈杂环境防止无限录音。",
-        "app.banner_line1": "VoirolClass v0.2.5",
+        "app.banner_line1": "VoirolClass v0.2.8.1",
         "app.banner_line2": "VoirolClass",
-        "app.banner_line3": "Version 0.2.3",
+        "app.banner_line3": "Version 0.2.8.1",
         "app.banner_line4": "Build 20250628-173812",
         "app.startup_no_teacher": "提示: 尚无已注册的老师。请右键托盘图标→设置→注册新老师。",
         "app.startup_hint": "      快捷键: 注册后可语音控制",
@@ -295,6 +319,7 @@ _STRINGS = {
         "service.stop": "停止服务",
         "quit": "退出",
         "settings.title": "设置",
+        "settings.saved": "设置已保存",
         "close": "关闭",
         "teacher.manage": "老师管理",
         "teacher.current": "当前老师: {name}",
@@ -342,7 +367,10 @@ _STRINGS = {
         "ui.theme_light": "浅色",
         "ui.theme_dark": "深色",
         "ui.restart_hint": "样式已更改，重启应用后生效。",
-        "about.version": "VoirolClass v0.2.5",
+        "ui.seed_color": "种子色",
+        "ui.dynamic_color": "动态取色（从壁纸）",
+        "ui.custom_color": "自定义颜色",
+        "about.version": "VoirolClass v0.2.8.1",
         "about.description": "VoirolClass",
         "about.tech": "基于 SenseVoice ASR + CAM++ 声纹验证",
         "mute.mic": "静音麦克风",
@@ -485,6 +513,7 @@ def set_language(lang: str):
     global _current_lang
     normalized = lang.split("-")[0] if lang else "en"
     _current_lang = normalized if normalized in _STRINGS else "en"
+    _lang_notifier.language_changed.emit(_current_lang)
 
 
 def get_language() -> str:

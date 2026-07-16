@@ -4,6 +4,7 @@ import subprocess
 
 from voirol.utils.logger import get_logger
 from voirol.command.actions import FILE_SEARCH_DIRS
+from voirol.command.maps import APP_MAP
 
 logger = get_logger("agent.file_ops")
 
@@ -51,11 +52,52 @@ def skill_open_app(params: dict) -> str:
 
 _ALLOWED_COMMANDS = {"dir", "ls", "echo", "cd", "pwd", "mkdir", "type", "cat"}
 
+_DANGEROUS_PATTERNS = {
+    "format", "del", "rmdir", "rd", "erase", "shutdown", "restart",
+    "reg delete", "reg add", "diskpart", "format", "mkfs",
+    "cmd /c", "powershell -", "bash -c",
+}
+
+
+def _validate_command(command: str) -> tuple[bool, str]:
+    """校验命令是否在白名单内且不含危险模式。
+
+    返回 (是否允许, 原因)。允许的命令需满足：
+    1. 命令首部（空格前的第一个 token）在 _ALLOWED_COMMANDS 中
+    2. 不包含 _DANGEROUS_PATTERNS 中的任何模式
+    3. 不包含重定向操作符 > < | & 以防写入/管道执行任意程序
+    """
+    if not command or not command.strip():
+        return False, "空命令"
+
+    stripped = command.strip()
+
+    lower = stripped.lower()
+    for pattern in _DANGEROUS_PATTERNS:
+        if pattern in lower:
+            return False, f"命令包含被禁止的模式: {pattern}"
+
+    for ch in (">", "<", "|", "&"):
+        if ch in stripped:
+            return False, f"命令包含被禁止的字符: {ch!r}"
+
+    first_token = stripped.split()[0].lower()
+    first_token_no_ext = first_token.replace(".exe", "").replace(".com", "")
+    if first_token not in _ALLOWED_COMMANDS and first_token_no_ext not in _ALLOWED_COMMANDS:
+        return False, f"命令 '{first_token}' 不在白名单中，允许的命令: {sorted(_ALLOWED_COMMANDS)}"
+
+    return True, ""
+
 
 def skill_run_command(params: dict) -> str:
     command = params["command"]
     cwd = params.get("cwd")
     timeout = params.get("timeout", 30)
+
+    allowed, reason = _validate_command(command)
+    if not allowed:
+        logger.warning(f"Command rejected: {reason} (command={command!r})")
+        return f"Error: 命令被拒绝 - {reason}"
 
     try:
         if os.name == "nt":

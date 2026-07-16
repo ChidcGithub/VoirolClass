@@ -115,6 +115,13 @@ def extract_embedding(
             emb = _embed_with_extra_inputs(embedder, audio)
         else:
             raise
+
+    # 统一归一化：保证 cosine_similarity 的点积等价于真正的余弦相似度
+    # embedder.embed() 返回的向量不保证已归一化（取决于 speakeronnx 实现）
+    norm = np.linalg.norm(emb)
+    if norm > 1e-10:
+        emb = emb / norm
+
     if tag:
         logger.debug(f"[{tag}] emb_dim={len(emb)}, first5={emb[:5].round(4).tolist()}, "
                       f"norm={np.linalg.norm(emb):.4f}")
@@ -186,9 +193,17 @@ def create_profile_from_audio(
     model_path: str = None,
 ) -> SpeakerProfile:
     embeddings = []
+    failed = 0
     for idx, audio in enumerate(audio_files):
-        emb = extract_embedding(audio, sample_rate, model_path, tag=f"enroll_{idx}")
-        embeddings.append(emb)
+        try:
+            emb = extract_embedding(audio, sample_rate, model_path, tag=f"enroll_{idx}")
+            embeddings.append(emb)
+        except Exception as e:
+            failed += 1
+            logger.warning(f"Enrollment utterance {idx} failed: {e}")
+
+    if not embeddings:
+        raise ValueError(f"所有 {len(audio_files)} 条注册音频都提取嵌入失败，无法创建档案")
 
     avg_embedding = np.mean(embeddings, axis=0)
     norm = np.linalg.norm(avg_embedding)
@@ -199,11 +214,12 @@ def create_profile_from_audio(
                   f"first5={avg_embedding[:5].round(4).tolist()}")
 
     logger.info(
-        f"Created profile '{name}' from {len(audio_files)} utterances, "
-        f"embedding dim={len(avg_embedding)}"
+        f"Created profile '{name}' from {len(embeddings)}/{len(audio_files)} utterances"
+        + (f" ({failed} failed)" if failed else "")
+        + f", embedding dim={len(avg_embedding)}"
     )
     return SpeakerProfile(
         name=name,
         embedding=avg_embedding,
-        utterances=len(audio_files),
+        utterances=len(embeddings),
     )

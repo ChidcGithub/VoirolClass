@@ -174,13 +174,26 @@ class AgentEngine:
             if skill_name == "ask_user":
                 self._pending_question = params.get("question", "") or params.get("text", "")
                 if not self._pending_question:
+                    self._pending_question = None
                     result = "ask_user: 未提供问题"
-                else:
-                    return f"[ASK_USER] {self._pending_question}"
+                    history.append({
+                        "skill": skill_name,
+                        "params": params,
+                        "reasoning": reasoning,
+                        "observation": observation,
+                        "result": result,
+                    })
+                    for cb in self._step_callbacks:
+                        try:
+                            cb(skill_name, reasoning, result)
+                        except Exception:
+                            pass
+                    continue
+                return f"[ASK_USER] {self._pending_question}"
 
             try:
                 result = self._registry.execute(skill_name, params, elements)
-            except (KeyError, TypeError, ValueError) as e:
+            except (KeyError, TypeError, ValueError, NameError, AttributeError) as e:
                 logger.warning(f"Step {step}: {e}")
                 result = f"Error: {e}"
 

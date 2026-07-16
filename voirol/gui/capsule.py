@@ -1,5 +1,5 @@
 import struct
-from collections import deque
+import time
 from ctypes import c_void_p
 
 from PyQt6.QtCore import (
@@ -12,6 +12,7 @@ from PyQt6.QtCore import (
     pyqtProperty,
 )
 from PyQt6.QtGui import QFont, QImage, QPainter, QColor
+from PyQt6.QtGui import QVector3D
 from PyQt6.QtOpenGL import (
     QOpenGLBuffer,
     QOpenGLShader,
@@ -19,16 +20,18 @@ from PyQt6.QtOpenGL import (
     QOpenGLVertexArrayObject,
 )
 from PyQt6.QtOpenGLWidgets import QOpenGLWidget
+from PyQt6.QtWidgets import QApplication
+from voirol.utils.resources import app_font_family
 from OpenGL.GL import (
     glGenTextures, glBindTexture, glTexImage2D,
     glTexParameteri, glActiveTexture,
     GL_TEXTURE0, GL_TEXTURE_2D, GL_RGBA, GL_UNSIGNED_BYTE,
     GL_TEXTURE_MIN_FILTER, GL_TEXTURE_MAG_FILTER, GL_LINEAR,
 )
-from PyQt6.QtWidgets import QApplication
 
 from voirol.core.pipeline import PipelineState
 from voirol.gui.shaders import VERTEX_SHADER, CAPSULE_FRAGMENT
+from voirol.gui.theme import get_theme_manager, M3ColorScheme, M3ShapeTokens, M3MotionTokens
 
 GL_FLOAT = 0x1406
 GL_TRIANGLE_STRIP = 0x0005
@@ -43,10 +46,11 @@ class CapsuleWidget(QOpenGLWidget):
     _level_signal = pyqtSignal(float)
     _text_signal = pyqtSignal(str, bool)
 
-    IDLE_W = 68
-    IDLE_H = 7
-    EXPAND_W = 440
-    EXPAND_H = 52
+    # M3 规范尺寸：圆角 28dp (shape.xl)，展开高度 56dp (M3 Touch Target)
+    IDLE_W = 64
+    IDLE_H = 8
+    EXPAND_W = 480
+    EXPAND_H = 56
 
     def __init__(self):
         super().__init__()
@@ -69,10 +73,8 @@ class CapsuleWidget(QOpenGLWidget):
         self._text_signal.connect(self._on_text_update)
 
         self._state = 0
-        self._levels = [0.0, 0.0, 0.0]
-        self._smooth_levels = [0.0, 0.0, 0.0]
-        self._level_history: deque[float] = deque([0.0, 0.0, 0.0], maxlen=3)
-        self._alpha = 0.35
+        self._target_level = 0.0
+        self._smooth_level = 0.0
         self._trans_value = 0.0
         self._text_alpha = 0.0
         self._show_text = 0
@@ -86,22 +88,32 @@ class CapsuleWidget(QOpenGLWidget):
         self._response_timer.setSingleShot(True)
         self._response_timer.timeout.connect(self._on_response_timeout)
 
-        self._fade_timer = QTimer(self)
-        self._fade_timer.setInterval(16)
-        self._fade_timer.timeout.connect(self._tick_fade)
-
+        # geometry animation — M3 emphasized 缓动 + medium2 时长 (350ms)
         self._anim = QPropertyAnimation(self, b"geometry")
-        self._anim.setDuration(420)
-        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._anim.setDuration(350)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutQuart)
 
+        # transition value animation (drives shader morph)
         self._trans_anim = QPropertyAnimation(self, b"trans_value")
-        self._trans_anim.setDuration(380)
-        self._trans_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._trans_anim.setDuration(350)
+        self._trans_anim.setEasingCurve(QEasingCurve.Type.OutQuart)
+
+        # unified tick for level smoothing + text fade + shader time
+        self._start_time = time.monotonic()
+        self._last_tick = self._start_time
+        self._tick_timer = QTimer(self)
+        self._tick_timer.setInterval(16)
+        self._tick_timer.timeout.connect(self._tick)
+        self._tick_timer.start()
 
         self._program: QOpenGLShaderProgram | None = None
         self._vbo: QOpenGLBuffer | None = None
         self._vao: QOpenGLVertexArrayObject | None = None
-        self._tick = 0
+
+        # ── 主题感知：订阅 M3ThemeManager ──
+        self._theme = get_theme_manager()
+        self._palette: dict[str, tuple[float, float, float] | float] = self._theme.opengl_palette()
+        self._theme.theme_changed.connect(self._on_theme_changed)
 
         self.setGeometry(self._idle_geo)
 
@@ -112,6 +124,17 @@ class CapsuleWidget(QOpenGLWidget):
     @trans_value.setter
     def trans_value(self, v: float):
         self._trans_value = v
+
+    # ── 主题切换 ──
+
+    def _on_theme_changed(
+        self, scheme: M3ColorScheme, shape: M3ShapeTokens, motion: M3MotionTokens
+    ):
+        """主题变化时更新 OpenGL 调色板并触发重绘"""
+        self._palette = self._theme.opengl_palette()
+        self.update()
+
+    # ── public API ──
 
     def set_state(self, state: PipelineState):
         si = 0 if state == PipelineState.IDLE else (1 if state == PipelineState.LISTENING else 2)
@@ -126,48 +149,88 @@ class CapsuleWidget(QOpenGLWidget):
     def set_response(self, text: str):
         self._text_signal.emit(text, True)
 
+    def tick_levels(self):
+        pass  # smoothing done in _tick
+
+    # ── signal handlers ──
+
+    def _on_state(self, si: int):
+        self._state = si
+
+        if si == 0:
+            self._show_text = 0
+            self._response_timer.stop()
+
+        target = 1.0 if si != 0 else 0.0
+        if abs(self._trans_value - target) > 0.001:
+            self._trans_anim.stop()
+            self._trans_anim.setStartValue(self._trans_value)
+            self._trans_anim.setEndValue(target)
+            self._trans_anim.start()
+
+        target_geo = self._expand_geo if si != 0 else self._idle_geo
+        if self.geometry() != target_geo:
+            self._anim.stop()
+            self._anim.setEndValue(target_geo)
+            self._anim.start()
+
+    def _on_level(self, level: float):
+        self._target_level = level
+
     def _on_text_update(self, text: str, is_response: bool):
         self._render_text_cpu(text)
         self._show_text = 1
         self._text_alpha = 0.0
-        self._fade_timer.start()
-        self.update()
         if is_response:
             self._response_timer.start(5000)
+
+    def _on_response_timeout(self):
+        self._show_text = 0
+
+    # ── text rasterization ──
 
     def _render_text_cpu(self, text: str):
         img = QImage(_TEXT_CANVAS_W, _TEXT_CANVAS_H, QImage.Format.Format_ARGB32)
         img.fill(QColor(0, 0, 0, 0))
         p = QPainter(img)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+        # M3 Type Scale：短文本用 body_large (16px/400)，长文本用 body_medium (14px/400)
         f = QFont()
         if len(text) < 20:
-            f.setPixelSize(22)
+            f.setPixelSize(16)   # body_large
+            f.setWeight(QFont.Weight.Normal)  # 400
+            f.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 0.5)
         else:
-            f.setPixelSize(16)
+            f.setPixelSize(14)   # body_medium
+            f.setWeight(QFont.Weight.Normal)  # 400
+            f.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 0.25)
+        f.setFamily(app_font_family())
         p.setFont(f)
-        p.setPen(QColor(255, 255, 255, 240))
+        # 白色文本，shader 会根据状态应用正确 tint (on-primary / on-surface)
+        p.setPen(QColor(255, 255, 255, 235))
         p.drawText(img.rect(), Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap, text)
         p.end()
         self._pending_image = img
         self._text_needs_upload = True
 
-    def _tick_fade(self):
-        if self._text_alpha < 1.0 and self._show_text:
-            self._text_alpha = min(1.0, self._text_alpha + 0.05)
-            self.update()
-        elif self._text_alpha >= 1.0:
-            self._fade_timer.stop()
-        elif self._text_alpha > 0.0 and not self._show_text:
-            self._text_alpha = max(0.0, self._text_alpha - 0.04)
-            self.update()
-            if self._text_alpha <= 0.0:
-                self._fade_timer.stop()
-                self.update()
+    # ── tick ──
 
-    def _on_response_timeout(self):
-        self._show_text = 0
-        self._fade_timer.start()
+    def _tick(self):
+        now = time.monotonic()
+        dt = min(now - self._last_tick, 0.05)
+        self._last_tick = now
+
+        # level smoothing (simple EMA)
+        self._smooth_level += (self._target_level - self._smooth_level) * min(1.0, dt / 0.08)
+
+        # text fade — M3 short4 (250ms) in, medium2 (350ms) out
+        if self._show_text and self._text_alpha < 1.0:
+            self._text_alpha = min(1.0, self._text_alpha + dt / 0.25)
+        elif not self._show_text and self._text_alpha > 0.0:
+            self._text_alpha = max(0.0, self._text_alpha - dt / 0.35)
+
+        self.update()
 
     # ── OpenGL ──
 
@@ -224,14 +287,23 @@ class CapsuleWidget(QOpenGLWidget):
 
         glClear(GL_COLOR_BUFFER_BIT)
 
+        t = time.monotonic() - self._start_time
+
         self._program.bind()
         self._program.setUniformValue("u_resolution", float(self.width()), float(self.height()))
-        self._program.setUniformValue("u_time", self._tick / 60.0)
+        self._program.setUniformValue("u_time", float(t))
         self._program.setUniformValue("u_state", self._state)
-        self._program.setUniformValue("u_levels", self._smooth_levels[0], self._smooth_levels[1], self._smooth_levels[2])
-        self._program.setUniformValue("u_transition", self._trans_value)
+        self._program.setUniformValue("u_levels_avg", float(self._smooth_level))
+        self._program.setUniformValue("u_transition", float(self._trans_value))
         self._program.setUniformValue("u_show_text", self._show_text if self._tex_id else 0)
-        self._program.setUniformValue("u_text_alpha", self._text_alpha)
+        self._program.setUniformValue("u_text_alpha", float(self._text_alpha))
+
+        # M3 调色板 uniforms — 从 M3ThemeManager 动态获取（支持 light/dark + 任意种子色）
+        for name, value in self._palette.items():
+            if isinstance(value, tuple):
+                self._program.setUniformValue(name, QVector3D(value[0], value[1], value[2]))
+            else:
+                self._program.setUniformValue(name, float(value))
 
         if self._show_text and self._tex_id:
             glActiveTexture(GL_TEXTURE0)
@@ -242,35 +314,3 @@ class CapsuleWidget(QOpenGLWidget):
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)
         self._vao.release()
         self._program.release()
-
-        self._tick += 1
-
-    # ── Qt signals ──
-
-    def _on_state(self, si: int):
-        self._state = si
-
-        if si == 0:
-            self._show_text = 0
-            self._response_timer.stop()
-
-        target = 1.0 if si != 0 else 0.0
-        if abs(self._trans_value - target) > 0.001:
-            self._trans_anim.stop()
-            self._trans_anim.setStartValue(self._trans_value)
-            self._trans_anim.setEndValue(target)
-            self._trans_anim.start()
-
-        target_geo = self._expand_geo if si != 0 else self._idle_geo
-        if self.geometry() != target_geo:
-            self._anim.stop()
-            self._anim.setEndValue(target_geo)
-            self._anim.start()
-
-    def _on_level(self, level: float):
-        self._level_history.appendleft(level)
-        self._levels = list(self._level_history)
-
-    def tick_levels(self):
-        for i in range(3):
-            self._smooth_levels[i] += (self._levels[i] - self._smooth_levels[i]) * self._alpha
