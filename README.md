@@ -21,6 +21,9 @@
 
 </div>
 
+> [!IMPORTANT]
+> This repository is about to be replaced by Neo (Originally named VoirolClass Revive). Neo is smarter, has a better interface, and is more user-friendly. Once the tool migration is complete, this repository will become read-only. Link: https://github.com/chidcgithub/Neo
+
 > [!TIP]
 > UI/UX collaborators are welcome! If you'd like to help improve the interface, feel free to open an issue or PR. See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 
